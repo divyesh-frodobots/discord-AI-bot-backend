@@ -22,8 +22,11 @@ class ConversationService {
   }
 
   // Initialize system message once and cache it
-  async initializeSystemMessage(articles) {
+  async initializeSystemMessage() {
     if (!this.systemMessage) {
+      // Get cached articles from ArticleService
+      const articles = await this.articleService.getAllArticles();
+      
       this.systemMessage = { 
         role: "system", 
         content: `You are a helpful assistant for FrodoBots, operating as a Discord bot within the FrodoBots Discord server. You have access to the following information from official help articles:
@@ -54,13 +57,20 @@ Remember: Always build on previous context and make connections to earlier parts
     return this.systemMessage;
   }
 
-  async initializeConversation(conversationId, articles, isUserBased = true) {
+  async initializeConversation(conversationId, articles = null, isUserBased = true) {
+    // If articles is provided (for product-specific conversations), use it
+    // Otherwise, use the cached system message for general conversations
     const key = isUserBased ? `user_${conversationId}` : conversationId;
     
     if (!this.userConversations[key]) {
-      // Use cached system message instead of fetching articles every time
-      const systemMessage = await this.initializeSystemMessage(articles);
-      this.userConversations[key] = [systemMessage];
+      if (articles) {
+        // For product-specific conversations (like tickets), use provided articles
+        this.userConversations[key] = [{ role: "system", content: articles }];
+      } else {
+        // For general conversations (like public channels), use cached system message
+        const systemMessage = await this.initializeSystemMessage();
+        this.userConversations[key] = [systemMessage];
+      }
     }
   }
 

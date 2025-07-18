@@ -124,12 +124,12 @@ client.on("messageCreate", async (message) => {
 // --- Handler for public channel messages ---
 async function handlePublicChannelMessage(message, publicChannelService) {
   const userId = message.author.id;
-  const username = message.author.username;
+  const username = message.author.username; 
   let typingInterval;
   try {
     typingInterval = setInterval(() => message.channel.sendTyping(), 5000);
     message.channel.sendTyping();
-    await conversationService.initializeConversation(userId, true);
+    await conversationService.initializeConversation(userId, null, true);
     conversationService.addUserMessage(userId, message.content, true);
     const conversationHistory = conversationService.getConversationHistory(userId, true);
     console.log("----conversationHistory----", conversationHistory);
