@@ -2,7 +2,7 @@ export default {
   // Bot Identity
   BOT_IDENTITY: {
     NAME: "FrodoBots",
-    DISPLAY_NAME: "FrodoBots Support Bot",
+    DISPLAY_NAME: "FrodoBots Support AI",
     AVATAR_URL: "https://cdn.prod.website-files.com/66042185882fa3428f4dd6f1/662bee5b5ef7ed094186a56a_frodobots_ai_logo.png",
     BRAND_VOICE: "friendly, concise, professional"
   },
@@ -83,14 +83,6 @@ export default {
     // Staff roles (bot ignores messages from these roles)
     STAFF_ROLES: [
       "My Support team",
-      "Moderator",
-      "Admin",
-      "Staff",
-      "Support Team",
-      "Support Agent",
-      "Helper",
-      "Team Lead",
-      "Supervisor"
     ],
 
     // Staff role IDs (bot ignores messages from these role IDs)

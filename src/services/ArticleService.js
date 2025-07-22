@@ -14,10 +14,10 @@ class ArticleService {
     // Configuration
     this.BASE_URL = "https://intercom.help/frodobots/en/";
     this.REFRESH_INTERVAL = 60 * 60 * 1000; // 1 hour
-    this.MAX_TOKENS = 4000; // Reduced from 6000 to stay within limits
+    this.MAX_TOKENS = 40000; // Increased for GPT-4.1's 1M context window - comprehensive knowledge base
     this.CONTENT_CACHE_DURATION = 30 * 60 * 1000; // 30 minutes for combined content
-    this.MAX_DEPTH = 5; // Maximum recursion depth to prevent infinite loops
-    this.MAX_URLS = 100; // Maximum number of URLs to crawl
+    this.MAX_DEPTH = 7; // Increased for comprehensive content with GPT-4.1
+    this.MAX_URLS = 200; // Increased to get full knowledge base
     this.CONCURRENT_REQUESTS = 3; // Number of concurrent requests
 
     this.CATEGORY_URLS = {
@@ -111,7 +111,28 @@ class ArticleService {
     } catch (err) {
       console.error(`Error extracting links from ${url}:`, err.message);
       return [];
+          }
     }
+  
+  // Clean and format URLs for Discord auto-linking
+  cleanUrlsForDiscord(text) {
+    // First, extract URLs from existing markdown links [text](url)
+    text = text.replace(/\[([^\]]*)\]\(([^)]+)\)/g, (match, linkText, url) => {
+      // Clean up the URL
+      let cleanUrl = url.replace(/[.,;!?]+$/, '');
+      // Return just the URL for Discord auto-linking
+      return cleanUrl;
+    });
+    
+    // Then handle any remaining plain URLs
+    const urlRegex = /https?:\/\/[^\s<>"{}|\\^`[\]()]+/g;
+    text = text.replace(urlRegex, (url) => {
+      // Clean up URL (remove trailing punctuation)
+      let cleanUrl = url.replace(/[.,;!?]+$/, '');
+      return cleanUrl;
+    });
+    
+    return text;
   }
 
   // Fetch article content from a page including links, images, and videos
@@ -149,9 +170,10 @@ class ArticleService {
         }
       }
       
-      // Clean up the text and combine with media content
+      // Clean up the text, convert URLs to clickable format, and combine with media content
       const cleanText = content.replace(/\s+/g, " ").trim();
-      const combinedContent = cleanText + (mediaContent ? "\n\n" + mediaContent : "");
+      const textWithClickableUrls = this.cleanUrlsForDiscord(cleanText);
+      const combinedContent = textWithClickableUrls + (mediaContent ? "\n\n" + mediaContent : "");
       
       return combinedContent;
     } catch (err) {
@@ -177,7 +199,7 @@ class ArticleService {
         } else {
           fullUrl = new URL(href, baseUrl).href;
         }
-        mediaItems.push(`Link: ${text} (${fullUrl})`);
+        mediaItems.push(`${text}: ${fullUrl}`);
       }
     });
     

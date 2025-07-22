@@ -15,17 +15,15 @@ class AIService {
   async generateResponse(messages) {
     try {
       const completion = await this.openai.chat.completions.create({
-        model: "gpt-4",
+        model: "gpt-4.1",
         messages: messages,
         temperature: 0.8, // Increased for more natural responses
         max_tokens: 500, // Reduced from 1000 to leave more room for system prompt
         presence_penalty: 0.1, // Slightly reduce repetition
         frequency_penalty: 0.1 // Slightly reduce repetitive phrases
       });
-      console.log("completion1", completion);
 
       const reply = completion.choices[0].message.content;
-      console.log("=====reply", reply);
       const confidence = this.calculateConfidence(reply, messages);
       return this.validateResponse(reply, confidence);
     } catch (err) {
@@ -35,7 +33,6 @@ class AIService {
   }
 
   validateResponse(reply, confidence) {
-    console.log("validateResponse", reply, confidence);
     // Check if the reply is meaningful
     if (!reply || reply.trim().length < 5) {
       return {
@@ -44,10 +41,8 @@ class AIService {
         confidence: 0
       };
     }
-    console.log("=====reply", reply);
     // Check for robotic phrases and improve them
     const improvedReply = this.improveResponseTone(reply);
-    console.log("=====improvedReply", improvedReply);
 
     return {
       isValid: true,
@@ -58,7 +53,6 @@ class AIService {
 
   // Improve response tone to sound more natural
   improveResponseTone(reply) {
-    console.log("=====improveResponseTone", reply);
     let improved = reply;
 
     // Replace robotic phrases with more natural ones
