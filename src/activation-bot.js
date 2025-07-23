@@ -298,6 +298,18 @@ class ActivationBot {
     const threadId = message.channel.id;
     let typingInterval;
 
+    // Ignore messages from support staff (support role)
+    try {
+      const member = await message.guild.members.fetch(userId);
+      if (member && member.roles.cache.has(this.config.supportRoleId)) {
+        console.log(`🛑 User ${username} (${userId}) is a support staff (role: ${this.config.supportRoleId}). Ignoring message.`);
+        return;
+      }
+    } catch (err) {
+      console.log(`⚠️ Could not fetch member or roles for user ${userId}:`, err.message);
+      // If we can't fetch, continue as normal (fail open)
+    }
+
     try {
       // FIRST: Check if this thread has been escalated to human support
       if (this.escalatedThreads.has(threadId)) {
@@ -713,27 +725,10 @@ Be friendly, direct, actionable.`;
   async handleRateLimitExceeded(message, rateLimitCheck) {
     const username = message.author.username;
     
-    let responseMessage = "⏱️ **Rate Limit Exceeded**\n\n";
-    
-    if (rateLimitCheck.reason === 'cooldown') {
-      responseMessage += `Please wait **${rateLimitCheck.remainingSeconds} seconds** before sending another message.\n\n`;
-      responseMessage += `🚀 This cooldown helps prevent spam and ensures quality responses for everyone!`;
-    } else if (rateLimitCheck.reason === 'per_minute') {
-      responseMessage += `You've reached your limit of **${rateLimitCheck.limit} questions per minute**.\n\n`;
-      responseMessage += `Please wait **${Math.ceil(rateLimitCheck.resetInSeconds / 60)} minute(s)** before asking another question.\n\n`;
-      responseMessage += `💡 For urgent issues, you can ask to "**talk to team**" to reach human support.`;
-    } else if (rateLimitCheck.reason === 'per_hour') {
-      responseMessage += `You've reached your limit of **${rateLimitCheck.limit} questions per hour**.\n\n`;
-      responseMessage += `Please wait **${rateLimitCheck.resetInMinutes} minute(s)** before asking another question.\n\n`;
-      responseMessage += `💡 For urgent issues, you can ask to "**talk to team**" to reach human support.`;
-    }
-
-    try {
-      await message.reply(responseMessage);
-      console.log(`⚠️ Rate limit exceeded for ${username}: ${rateLimitCheck.reason} (${rateLimitCheck.current}/${rateLimitCheck.limit})`);
-    } catch (error) {
-      console.error(`🚨 Error sending rate limit message to ${username}:`, error);
-    }
+    // No longer send a message to the user, just log the event
+    console.log(`⚠️ Rate limit exceeded for ${username}: ${rateLimitCheck.reason} (${rateLimitCheck.current}/${rateLimitCheck.limit})`);
+    // Optionally, you could add a delay here if you want to simulate waiting
+    // await new Promise(resolve => setTimeout(resolve, 1000));
   }
 }
 
