@@ -45,10 +45,8 @@ class TicketChannelService {
    * @returns {boolean} True if it's a ticket channel
    */
   isTicketChannel(channel) {
-    if (channel.isThread && channel.isThread()) {
-      return channel.parentId === constants.ROLES.SUPPORT_TICKET_CHANNEL_ID;
-    }
-    return channel.name;
+    // Only return true for threads whose parent is the support ticket channel
+    return channel.isThread && channel.isThread() && channel.parentId === constants.ROLES.SUPPORT_TICKET_CHANNEL_ID;
   }
 
   /**
@@ -85,6 +83,10 @@ class TicketChannelService {
    * @param {Object} message - Discord message object
    */
   async handleMessage(message) {
+    // Only process messages in valid ticket threads
+    if (!this.isTicketChannel(message.channel)) {
+      return;
+    }
     const channelId = message.channel.id;
     
     // Step 1: Get current ticket state

@@ -229,10 +229,7 @@ export class ChannelUtilsService {
    * Check if channel is a ticket channel
    */
   static isTicketChannel(channel) {
-    if (channel.isThread && channel.isThread()) {
-      return channel.parentId === constants.ROLES.SUPPORT_TICKET_CHANNEL_ID;
-    }
-    return channel.name;
+    return channel.isThread && channel.isThread() && channel.parentId === constants.ROLES.SUPPORT_TICKET_CHANNEL_ID;
   }
 
   /**

@@ -335,10 +335,7 @@ class TicketButtonHandler {
    * @returns {boolean} True if it's a ticket channel
    */
   isTicketChannel(channel) {
-    if (channel.isThread && channel.isThread()) {
-      return channel.parentId === constants.ROLES.SUPPORT_TICKET_CHANNEL_ID;
-    }
-    return channel.name;
+    return channel.isThread && channel.isThread() && channel.parentId === constants.ROLES.SUPPORT_TICKET_CHANNEL_ID;
   }
 
   /**

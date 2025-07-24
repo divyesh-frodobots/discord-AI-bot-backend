@@ -23,12 +23,7 @@ class TicketChannelManager {
    * @returns {boolean} True if it's a ticket channel
    */
   isTicketChannel(channel) {
-    // If it's a thread, check parent and name
-    if (channel.isThread && channel.isThread()) {
-      return channel.parentId === constants.ROLES.SUPPORT_TICKET_CHANNEL_ID;
-    }
-    // Otherwise, check for legacy channel
-    return channel.name;
+    return channel.isThread && channel.isThread() && channel.parentId === constants.ROLES.SUPPORT_TICKET_CHANNEL_ID;
   }
 
   /**
