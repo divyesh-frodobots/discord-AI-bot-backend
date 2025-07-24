@@ -199,11 +199,19 @@ client.on('interactionCreate', async interaction => {
 });
 
 // Handle channel creation - only for ticket channels
-client.on("channelCreate", async (channel) => {
-  // Only handle text channels
-  if (channel.type !== ChannelType.GuildText) return;
+// client.on("channelCreate", async (channel) => {
+//   // Only handle text channels
+//   if (channel.type !== ChannelType.GuildText) return;
   
-  await ticketChannelManager.handleChannelCreation(channel);
+//   await ticketChannelManager.handleChannelCreation(channel);
+// });
+
+// Handle thread creation - only for ticket threads in the support ticket channel
+client.on("threadCreate", async (thread) => {
+  // Only handle threads whose parent is the support ticket channel
+  if (ticketChannelService.isTicketChannel(thread)) {
+    await ticketChannelManager.handleChannelCreation(thread);
+  }
 });
 
 // Handle channel deletion - only for ticket channels

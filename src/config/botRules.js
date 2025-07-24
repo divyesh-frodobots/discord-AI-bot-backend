@@ -82,12 +82,13 @@ export default {
 
     // Staff roles (bot ignores messages from these roles)
     STAFF_ROLES: [
-      "My Support team",
+      // "My Support team",
+      "Customer Support"
     ],
 
     // Staff role IDs (bot ignores messages from these role IDs)
     STAFF_ROLE_IDS: [
-      "1384038915106934924", // Support team role ID
+      "1217016478193422406", // Support team role ID
       // Add more staff role IDs here as needed
     ],
 
@@ -151,7 +152,7 @@ export default {
   LOGGING: {
     // Log channels
     PUBLIC_LOGS_CHANNEL: "logging-public",
-    TICKET_LOGS_CHANNEL: "logging-ticket",
+    TICKET_LOGS_CHANNEL: "1215167403848114217", // Channel ID for ticket logs
     ADMIN_LOGS_CHANNEL: "admin-logs",
 
     // What to log
