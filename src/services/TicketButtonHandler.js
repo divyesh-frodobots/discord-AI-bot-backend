@@ -180,9 +180,10 @@ class TicketButtonHandler {
    */
   async showProductSelection(interaction) {
     const productButtons = this.createProductButtons();
+    const components = Object.values(productButtons).filter(Boolean); // Only non-null rows
     await interaction.editReply({
       content: "Select a product to get assistance:",
-      components: [productButtons.row1, productButtons.row2]
+      components
     });
   }
 
@@ -192,9 +193,10 @@ class TicketButtonHandler {
    */
   async showSoftwareProductSelection(interaction) {
     const productButtons = this.createProductButtons();
+    const components = Object.values(productButtons).filter(Boolean); // Only non-null rows
     await interaction.editReply({
       content: "Select the product you're having software/setup issues with:",
-      components: [productButtons.row1, productButtons.row2]
+      components
     });
   }
 
@@ -262,23 +264,41 @@ class TicketButtonHandler {
    * @returns {Object} Button rows object
    */
   createProductButtons() {
-    const row1 = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('product_ufb').setLabel('UFB').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId('product_earthrover_school').setLabel('EarthRover School').setStyle(ButtonStyle.Primary),
+    const hideSpecial = process.env.DISCORD_SERVER_NAME === 'frodobots_owner';
+    const row1 = new ActionRowBuilder();
+    let row2 = null;
+    if (!hideSpecial) {
+      row1.addComponents(
+        new ButtonBuilder().setCustomId('product_ufb').setLabel('UFB').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('product_earthrover_school').setLabel('EarthRover School').setStyle(ButtonStyle.Primary)
+      );
+    }
+    row1.addComponents(
       new ButtonBuilder().setCustomId('product_robotsfun').setLabel('Robots.Fun').setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId('product_earthrover').setLabel('EarthRover (Personal Bot)').setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId('product_et_fugi').setLabel('ET Fugi').setStyle(ButtonStyle.Primary)
     );
 
-    const row2 = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('product_sam').setLabel('SAM').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder()
-        .setLabel('Documentation')
-        .setStyle(ButtonStyle.Link)
-        .setURL('https://intercom.help/frodobots/en')
-    );
+    if (!hideSpecial) {
+      row2 = new ActionRowBuilder();
+      row2.addComponents(
+        new ButtonBuilder().setCustomId('product_sam').setLabel('SAM').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setLabel('Documentation')
+          .setStyle(ButtonStyle.Link)
+          .setURL('https://intercom.help/frodobots/en')
+      );
+    } else {
+      // If hiding special, add Documentation to row1
+      row1.addComponents(
+        new ButtonBuilder()
+          .setLabel('Documentation')
+          .setStyle(ButtonStyle.Link)
+          .setURL('https://intercom.help/frodobots/en')
+      );
+    }
 
-    return { row1, row2 };
+    return row2 ? { row1, row2 } : { row1 };
   }
 
   /**
@@ -315,9 +335,10 @@ class TicketButtonHandler {
    * @returns {boolean} True if it's a ticket channel
    */
   isTicketChannel(channel) {
-    return channel.name.startsWith('ticket-') ||
-           channel.name.startsWith('support-') ||
-           channel.name.includes('ticket');
+    if (channel.isThread && channel.isThread()) {
+      return channel.parentId === constants.ROLES.SUPPORT_TICKET_CHANNEL_ID;
+    }
+    return channel.name;
   }
 
   /**

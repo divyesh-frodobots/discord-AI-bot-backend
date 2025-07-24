@@ -18,11 +18,8 @@ class LoggingService {
       const guilds = this.client.guilds.cache;
       
       for (const [guildId, guild] of guilds) {
-        // Find ticket logs channel
-        const ticketLogsChannel = guild.channels.cache.find(channel => 
-          channel.name === botRules.LOGGING.TICKET_LOGS_CHANNEL && 
-          channel.type === 0 // GuildText
-        );
+        // Use channel ID instead of name for ticket logs
+        const ticketLogsChannel = guild.channels.cache.get(botRules.LOGGING.TICKET_LOGS_CHANNEL);
         
         if (ticketLogsChannel) {
           this.logChannels.ticket = ticketLogsChannel;

@@ -229,9 +229,10 @@ export class ChannelUtilsService {
    * Check if channel is a ticket channel
    */
   static isTicketChannel(channel) {
-    return channel.name.startsWith('ticket-') ||
-           channel.name.startsWith('support-') ||
-           channel.name.includes('ticket');
+    if (channel.isThread && channel.isThread()) {
+      return channel.parentId === constants.ROLES.SUPPORT_TICKET_CHANNEL_ID;
+    }
+    return channel.name;
   }
 
   /**
