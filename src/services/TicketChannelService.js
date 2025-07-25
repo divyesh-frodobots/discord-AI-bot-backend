@@ -90,7 +90,7 @@ class TicketChannelService {
     const channelId = message.channel.id;
     
     // Step 1: Get current ticket state
-    const ticketState = this.ticketSelectionService.get(channelId);
+    const ticketState = await this.ticketSelectionService.get(channelId);
 
     // Step 2: Check if AI should respond
     if (!this.shouldAIRespond(ticketState, message)) {
@@ -168,8 +168,8 @@ class TicketChannelService {
     const channelId = message.channel.id;
     
     // Mark questions as answered and escalate to human
-    this.ticketSelectionService.updateField(channelId, 'questionsAnswered', true);
-    this.ticketSelectionService.escalateToHuman(channelId);
+    await this.ticketSelectionService.updateField(channelId, 'questionsAnswered', true);
+    await this.ticketSelectionService.escalateToHuman(channelId);
     const supportMessage = constants.MESSAGES.getFallbackResponse(constants.ROLES.SUPPORT_TEAM);
     await message.reply({ content: supportMessage, flags: ['SuppressEmbeds'] });
 
@@ -217,7 +217,7 @@ class TicketChannelService {
     const channelId = message.channel.id;
     
     // Mark for human help
-    this.ticketSelectionService.escalateToHuman(channelId);
+    await this.ticketSelectionService.escalateToHuman(channelId);
     const supportMessage = constants.MESSAGES.getFallbackResponse(constants.ROLES.SUPPORT_TEAM);
     await message.reply({ content: supportMessage, flags: ['SuppressEmbeds'] });
 
