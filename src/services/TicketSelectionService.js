@@ -1,3 +1,5 @@
+import { getTicketState, setTicketState, clearTicketState } from './TicketStateStore.js';
+
 /**
  * TicketSelectionService - Manages ticket state and selections
  * 
@@ -9,18 +11,15 @@
  * STEP 1: State Management
  */
 class TicketSelectionService {
-  constructor() {
-    // Map to store ticket state: channelId -> ticketState
-    this.ticketStates = new Map();
-  }
+  constructor() {}
 
   /**
    * Get current ticket state for a channel
    * @param {string} channelId - Discord channel ID
-   * @returns {Object} Ticket state object
+   * @returns {Promise<Object>} Ticket state object
    */
-  get(channelId) {
-    return this.ticketStates.get(channelId) || this.getDefaultState();
+  async get(channelId) {
+    return (await getTicketState(channelId)) || this.getDefaultState();
   }
 
   /**
@@ -28,25 +27,25 @@ class TicketSelectionService {
    * @param {string} channelId - Discord channel ID
    * @param {Object} state - New ticket state
    */
-  set(channelId, state) {
-    this.ticketStates.set(channelId, { ...this.getDefaultState(), ...state });
+  async set(channelId, state) {
+    await setTicketState(channelId, { ...this.getDefaultState(), ...state });
   }
 
   /**
    * Clear ticket state when channel is closed
    * @param {string} channelId - Discord channel ID
    */
-  clear(channelId) {
-    this.ticketStates.delete(channelId);
+  async clear(channelId) {
+    await clearTicketState(channelId);
   }
 
   /**
    * Check if channel has active ticket state
    * @param {string} channelId - Discord channel ID
-   * @returns {boolean} True if ticket state exists
+   * @returns {Promise<boolean>} True if ticket state exists
    */
-  has(channelId) {
-    return this.ticketStates.has(channelId);
+  async has(channelId) {
+    return (await getTicketState(channelId)) !== null;
   }
 
   /**
@@ -55,11 +54,11 @@ class TicketSelectionService {
    */
   getDefaultState() {
     return {
-      product: null,        // Selected product (ufb, earthrover, etc.)
-      category: null,       // Selected category (hardware, billing, etc.)
-      humanHelp: false,     // Whether human help is requested
-      questionsAnswered: false, // Whether category questions were answered
-      lastActivity: Date.now() // Timestamp of last activity
+      product: null,
+      category: null,
+      humanHelp: false,
+      questionsAnswered: false,
+      lastActivity: Date.now()
     };
   }
 
@@ -69,18 +68,18 @@ class TicketSelectionService {
    * @param {string} field - Field name to update
    * @param {any} value - New value
    */
-  updateField(channelId, field, value) {
-    const currentState = this.get(channelId);
-    this.set(channelId, { ...currentState, [field]: value });
+  async updateField(channelId, field, value) {
+    const currentState = await this.get(channelId);
+    await this.set(channelId, { ...currentState, [field]: value });
   }
 
   /**
    * Check if ticket is ready for AI responses
    * @param {string} channelId - Discord channel ID
-   * @returns {boolean} True if AI can respond
+   * @returns {Promise<boolean>} True if AI can respond
    */
-  canAIRespond(channelId) {
-    const state = this.get(channelId);
+  async canAIRespond(channelId) {
+    const state = await this.get(channelId);
     return !state.humanHelp && state.product !== null;
   }
 
@@ -88,16 +87,16 @@ class TicketSelectionService {
    * Mark ticket for human escalation
    * @param {string} channelId - Discord channel ID
    */
-  escalateToHuman(channelId) {
-    this.updateField(channelId, 'humanHelp', true);
+  async escalateToHuman(channelId) {
+    await this.updateField(channelId, 'humanHelp', true);
   }
 
   /**
    * Reset ticket to allow AI responses again
    * @param {string} channelId - Discord channel ID
    */
-  resetForAI(channelId) {
-    this.set(channelId, { ...this.getDefaultState() });
+  async resetForAI(channelId) {
+    await this.set(channelId, { ...this.getDefaultState() });
   }
 }
 

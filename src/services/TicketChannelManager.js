@@ -39,7 +39,7 @@ class TicketChannelManager {
     console.log(`🎫 New ticket created: ${channel.name} (${channel.id})`);
 
     // Step 2: Initialize ticket state
-    this.ticketSelectionService.set(channel.id, {
+    await this.ticketSelectionService.set(channel.id, {
       product: null,
       humanHelp: false,
       category: null,
@@ -75,7 +75,7 @@ class TicketChannelManager {
     }
 
     // Step 3: Clean up ticket state
-    this.ticketSelectionService.clear(channel.id);
+    await this.ticketSelectionService.clear(channel.id);
   }
 
   /**

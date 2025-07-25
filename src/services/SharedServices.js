@@ -53,7 +53,7 @@ export class ProductService {
 
       // Update selection state
       const selection = { product: productInfo.key, humanHelp: false };
-      ticketSelectionService.set(channelId, selection);
+      await ticketSelectionService.set(channelId, selection);
 
       await interaction.editReply({ 
         content: `✅ You selected **${productInfo.displayName}**! Please ask your ${productInfo.name}-related question.`
@@ -142,7 +142,7 @@ export class EscalationService {
       conversationService.clearConversation(channelId, !isTicketChannel);
       
       const selection = { product: null, humanHelp: true };
-      ticketSelectionService.set(channelId, selection);
+      await ticketSelectionService.set(channelId, selection);
       
       const helpMessage = constants.MESSAGES.getFallbackResponse(constants.ROLES.SUPPORT_TEAM);
       await interaction.editReply({ content: helpMessage });

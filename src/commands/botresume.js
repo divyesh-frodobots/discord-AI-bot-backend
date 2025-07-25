@@ -30,7 +30,7 @@ export default {
     }
 
     const channelId = interaction.channel.id;
-    const currentSelection = ticketSelectionService.get(channelId);
+    const currentSelection = await ticketSelectionService.get(channelId);
 
     // Reset humanHelp to false to resume the bot
     const updatedSelection = {
@@ -38,7 +38,7 @@ export default {
       humanHelp: false
     };
 
-    ticketSelectionService.set(channelId, updatedSelection);
+    await ticketSelectionService.set(channelId, updatedSelection);
 
     await interaction.reply({
       content: '✅ **Bot Reactivated**\n\nThe AI assistant is now active again in this ticket. You may continue interacting with the bot for support.',

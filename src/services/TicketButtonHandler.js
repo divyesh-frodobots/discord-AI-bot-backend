@@ -83,7 +83,7 @@ class TicketButtonHandler {
       }
 
       // Step 2: Update ticket state
-      this.updateTicketState(channelId, {
+      await this.updateTicketState(channelId, {
         category: interaction.customId,
         humanHelp: false,
         questionsAnswered: false
@@ -125,7 +125,7 @@ class TicketButtonHandler {
       await this.conversationService.initializeConversation(channelId, systemContent, false);
 
       // Step 3: Update ticket state
-      this.updateTicketState(channelId, {
+      await this.updateTicketState(channelId, {
         product: productInfo.key,
         humanHelp: false
       });
@@ -156,7 +156,7 @@ class TicketButtonHandler {
 
       // Step 1: Clear conversation and set human help
       this.conversationService.clearConversation(channelId, false);
-      this.updateTicketState(channelId, {
+      await this.updateTicketState(channelId, {
         product: null,
         humanHelp: true
       });
@@ -324,9 +324,9 @@ class TicketButtonHandler {
    * @param {string} channelId - Discord channel ID
    * @param {Object} updates - State updates to apply
    */
-  updateTicketState(channelId, updates) {
-    const currentState = this.ticketSelectionService.get(channelId);
-    this.ticketSelectionService.set(channelId, { ...currentState, ...updates });
+  async updateTicketState(channelId, updates) {
+    const currentState = await this.ticketSelectionService.get(channelId);
+    await this.ticketSelectionService.set(channelId, { ...currentState, ...updates });
   }
 
   /**
