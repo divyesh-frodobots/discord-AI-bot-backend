@@ -365,14 +365,14 @@ class ArticleService {
   }
 
   async initialize() {
-    const allContent = await this.getAllArticles();
-    if (allContent) {
-      console.log("Article service initialized successfully");
-      return allContent;
-    } else {
-      console.log("Failed to load articles, using fallback");
-      return "Article content unavailable";
-    }
+    // const allContent = await this.getAllArticles();
+    // if (allContent) {
+    //   console.log("Article service initialized successfully");
+    //   return allContent;
+    // } else {
+    //   console.log("Failed to load articles, using fallback");
+    //   return "Article content unavailable";
+    // }
   }
 
   // Check if a question is related to a specific product using article content

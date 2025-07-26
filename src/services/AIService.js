@@ -15,7 +15,7 @@ class AIService {
   async generateResponse(messages) {
     try {
       const completion = await this.openai.chat.completions.create({
-        model: "gpt-4.1",
+        model: "gpt-4.1-nano",
         messages: messages,
         temperature: 0.8, // Increased for more natural responses
         max_tokens: 500, // Reduced from 1000 to leave more room for system prompt

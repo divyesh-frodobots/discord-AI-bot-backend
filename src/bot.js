@@ -10,6 +10,8 @@ import TicketSelectionService from './services/TicketSelectionService.js';
 import LoggingService from './services/LoggingService.js';
 import PublicChannelService from './services/PublicChannelService.js';
 import ChannelService from './services/ChannelService.js';
+// NEW: Import and initialize PublicArticleService for public channels only
+import PublicArticleService from "./services/PublicArticleService.js";
 
 // Import handlers
 import TicketButtonHandler from './services/TicketButtonHandler.js';
@@ -30,6 +32,9 @@ const ticketSelectionService = new TicketSelectionService();
 const ticketChannelService = new TicketChannelService(ticketSelectionService, articleService, aiService);
 const publicChannelService = new PublicChannelService();
 const channelService = new ChannelService();
+// NEW: Initialize PublicArticleService for public channels only
+const publicArticleService = new PublicArticleService();
+const publicConversationService = new ConversationService(publicArticleService);
 
 // Create Discord client
 const client = new Client({
@@ -66,11 +71,16 @@ client.once("ready", () => {
   
   // Set bot status
   client.user.setStatus(constants.BOT_CONFIG.STATUS);
-  // Initialize article service
-  articleService.initialize().then(() => {
-    console.log(constants.MESSAGES.ARTICLES_LOADED);
+  // Initialize article services
+  // articleService.initialize().then(() => {
+  //   console.log(constants.MESSAGES.ARTICLES_LOADED);
+  // }).catch(() => {
+  //   console.log(constants.MESSAGES.ARTICLES_FAILED);
+  // });
+  publicArticleService.initialize().then(() => {
+    console.log("Public articles loaded");
   }).catch(() => {
-    console.log(constants.MESSAGES.ARTICLES_FAILED);
+    console.log("Public articles failed to load");
   });
 });
 
@@ -104,7 +114,7 @@ client.on("messageCreate", async (message) => {
     // --- Trigger Conditions ---
     const publicChannelCheck = publicChannelService.shouldRespond(message, client.user.id);
     if (publicChannelCheck.shouldRespond) {
-      await handlePublicChannelMessage(message, publicChannelService);
+      await handlePublicChannelMessage(message, publicChannelService, publicConversationService);
     } else if (publicChannelCheck.escalateNow) {
       await publicChannelService.handleEscalation(message);
     } else if (publicChannelCheck.reason === 'escalated') {
@@ -122,16 +132,16 @@ client.on("messageCreate", async (message) => {
 
 
 // --- Handler for public channel messages ---
-async function handlePublicChannelMessage(message, publicChannelService) {
+async function handlePublicChannelMessage(message, publicChannelService, publicConversationService) {
   const userId = message.author.id;
   const username = message.author.username; 
   let typingInterval;
   try {
     typingInterval = setInterval(() => message.channel.sendTyping(), 5000);
     message.channel.sendTyping();
-    await conversationService.initializeConversation(userId, null, true);
-    conversationService.addUserMessage(userId, message.content, true);
-    const conversationHistory = conversationService.getConversationHistory(userId, true);
+    await publicConversationService.initializeConversation(userId, null, true);
+    publicConversationService.addUserMessage(userId, message.content, true);
+    const conversationHistory = publicConversationService.getConversationHistory(userId, true);
     console.log("----conversationHistory----", conversationHistory);
     const aiResponse = await aiService.generateResponse(conversationHistory);
     console.log("----aiResponse----", aiResponse);
@@ -146,7 +156,7 @@ async function handlePublicChannelMessage(message, publicChannelService) {
     }
     if (aiResponse.isValid) {
       message.reply(aiResponse.response);
-      conversationService.addAssistantMessage(userId, aiResponse.response, true);
+      publicConversationService.addAssistantMessage(userId, aiResponse.response, true);
       await publicChannelService.logQuery(userId, username, message.content, aiResponse.response, aiResponse.confidence, client);
     } else {
       message.reply(aiResponse.response);

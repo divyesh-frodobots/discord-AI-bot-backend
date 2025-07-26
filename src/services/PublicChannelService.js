@@ -1,4 +1,5 @@
 import botRules from '../config/botRules.js';
+import natural from 'natural';
 
 class PublicChannelService {
   constructor() {
@@ -7,8 +8,10 @@ class PublicChannelService {
     this.activeSessions = new Map(); // Map of `${userId}:${channelId}` -> lastActiveTimestamp
     this.escalatedUsers = new Map(); // Map of `${userId}:${channelId}` -> true if escalated
     this.lastAnswered = new Map(); // Map of `${userId}:${channelId}` -> timestamp of last answered
+    this.lastMessageContent = new Map(); // Map of `${userId}:${channelId}` -> last message content
     this.SESSION_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour (updated from 10 min)
     this.COOLDOWN_SECONDS = 10; // 10 seconds cooldown between answers
+    this.SIMILARITY_THRESHOLD = 0.5; // Adjust as needed
   }
 
   /**
@@ -54,6 +57,7 @@ class PublicChannelService {
     if (sessionActive) {
       if (this.isQuestion(message.content)) {
         this.activeSessions.set(sessionKey, now); // refresh session
+        this.lastMessageContent.set(sessionKey, message.content); // store last message
         // Check rate limits
         const rateLimitCheck = this.checkRateLimit(userId);
         if (!rateLimitCheck.allowed) {
@@ -62,15 +66,44 @@ class PublicChannelService {
         this.lastAnswered.set(sessionKey, now); // set cooldown
         return { shouldRespond: true, reason: 'active_session' };
       } else {
+        // Advanced: check semantic similarity to last message
+        const lastMsg = this.lastMessageContent.get(sessionKey);
+        if (lastMsg) {
+          const similarity = natural.JaroWinklerDistance(lastMsg, message.content);
+          if (similarity >= this.SIMILARITY_THRESHOLD) {
+            this.activeSessions.set(sessionKey, now); // refresh session
+            this.lastMessageContent.set(sessionKey, message.content); // update last message
+            // Check rate limits
+            const rateLimitCheck = this.checkRateLimit(userId);
+            if (!rateLimitCheck.allowed) {
+              return { shouldRespond: false, reason: 'rate_limited', cooldownRemaining: rateLimitCheck.cooldownRemaining };
+            }
+            this.lastAnswered.set(sessionKey, now); // set cooldown
+            return { shouldRespond: true, reason: 'active_session_semantic' };
+          }
+        }
         return { shouldRespond: false, reason: 'not_a_question' };
       }
     }
 
-    // If no active session, require trigger + question
+    // If no active session, require trigger + question, or allow mention
     const triggerCheck = this.checkTriggers(message.content, botUserId);
+    console.log('---------triggerCheck', triggerCheck)
+    const isMention = triggerCheck.triggered && triggerCheck.trigger === 'mention';
     if (!triggerCheck.triggered) {
       // Do NOT start a session, do NOT respond
       return { shouldRespond: false, reason: 'no_trigger' };
+    }
+    // If mention, allow even if not a question
+    if (isMention) {
+      this.activeSessions.set(sessionKey, now);
+      // Check rate limits
+      const rateLimitCheck = this.checkRateLimit(userId);
+      if (!rateLimitCheck.allowed) {
+        return { shouldRespond: false, reason: 'rate_limited', cooldownRemaining: rateLimitCheck.cooldownRemaining };
+      }
+      this.lastAnswered.set(sessionKey, now); // set cooldown
+      return { shouldRespond: true, reason: 'mention_no_question' };
     }
     if (!this.isQuestion(message.content)) {
       // Friendly prompt if triggered but not a question
@@ -78,6 +111,7 @@ class PublicChannelService {
     }
     // Passed: start session ONLY if trigger + question
     this.activeSessions.set(sessionKey, now);
+    this.lastMessageContent.set(sessionKey, message.content); // store last message
     // Check rate limits
     const rateLimitCheck = this.checkRateLimit(userId);
     if (!rateLimitCheck.allowed) {
@@ -99,14 +133,13 @@ class PublicChannelService {
    * Now supports botUserId for mention detection
    */
   checkTriggers(content, botUserId) {
-    console.log("--------checkTriggers", content, botUserId);
-    // Check for bot mention by user ID at the start of the message
-    if (botUserId && content.trim().startsWith(`<@${botUserId}>`)) {
-      console.log("triggered: true, trigger: 'mention'");
+    // Robust mention detection: allow leading whitespace before mention
+    const trimmed = content.trimStart();
+    if (botUserId && trimmed.startsWith(`<@${botUserId}>`)) {
       return { triggered: true, trigger: 'mention' };
     }
     // Check for prefix command !help at the start
-    if (content.trim().toLowerCase().startsWith('!help')) {
+    if (trimmed.toLowerCase().startsWith('!help')) {
       return { triggered: true, trigger: 'prefix' };
     }
     // No other triggers allowed

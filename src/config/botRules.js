@@ -12,7 +12,9 @@ export default {
     // Approved channels where bot can respond
     APPROVED_CHANNELS: [
       "test-bot-ai", // #test-bot-ai
-      "test"
+      "test",
+      "AIsupport",
+      "generalchat"
     ],
 
     // Trigger conditions
@@ -88,7 +90,7 @@ export default {
 
     // Staff role IDs (bot ignores messages from these role IDs)
     STAFF_ROLE_IDS: [
-      "1217016478193422406", // Support team role ID
+      "1396708268998660179", // Support team role ID
       // Add more staff role IDs here as needed
     ],
 
