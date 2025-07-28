@@ -16,12 +16,12 @@ export default {
   },
 
   ROLES: {
-    SUPPORT_TEAM: '1396708268998660179',
+    SUPPORT_TEAM: '1384038915106934924',
     SUPPORT_TICKET_CHANNEL_ID: '1215167614649765960' // <-- Replace with your actual support channel ID
   },
 
   MESSAGES: {
-    getFallbackResponse: (supportTeamId = '1396708268998660179') => `Thanks for reaching out!  \n<@&${supportTeamId}> will review your request and get back to you as soon as possible. \n\n**Support Hours:** Mon-Fri, 10am-6pm SGT. \n(*AI bot will no longer respond to messages in this ticket.*)`,
+    getFallbackResponse: (supportTeamId = '1384038915106934924') => `Thanks for reaching out!  \n<@&${supportTeamId}> will review your request and get back to you as soon as possible. \n\n**Support Hours:** Mon-Fri, 10am-6pm SGT. \n(*AI bot will no longer respond to messages in this ticket.*)`,
     CONTENT_TRUNCATED: "[Content truncated due to length limits]",
     BOT_READY: "Bot is ready! Logged in as",
     ARTICLES_LOADED: "Article service initialized successfully",

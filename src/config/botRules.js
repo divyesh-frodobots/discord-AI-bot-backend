@@ -13,13 +13,14 @@ export default {
     APPROVED_CHANNELS: [
       "test-bot-ai", // #test-bot-ai
       "test",
-      "AIsupport",
-      "generalchat"
+      "public-testing",
+      "bot-public"
     ],
 
     // Trigger conditions
     TRIGGERS: {
       MENTION_BOT: true,        // @FrodoBot
+      BOT_ROLE_ID: "1384878308398993542", // FrodoBots AI role ID (for role mentions)
       PREFIX_COMMANDS: [        // Command prefixes
         "/ask",
         "!help",
