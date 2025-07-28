@@ -109,13 +109,19 @@ class TicketChannelService {
       return;
     }
 
-    // Step 5: Validate product selection
+    // Step 5: Validate category selection first
+    if (!ticketState.category) {
+      await this.requestCategorySelection(message);
+      return;
+    }
+
+    // Step 6: Validate product selection (only for categories that require product selection)
     if (!ticketState.product) {
       await this.requestProductSelection(message);
       return;
     }
 
-    // Step 6: Generate AI response
+    // Step 7: Generate AI response
     await this.generateAIResponse(message, ticketState);
   }
 
@@ -232,6 +238,20 @@ class TicketChannelService {
     if (this.loggingService) {
       await this.loggingService.logEscalation(message, 'AI detected escalation intent');
       await this.loggingService.logTicketInteraction(message, supportMessage, ticketState?.product, true);
+    }
+  }
+
+  /**
+   * Request category selection from user
+   * @param {Object} message - Discord message object
+   */
+  async requestCategorySelection(message) {
+    const noCategoryResponse = 'Please select a category to get started with your support request using the buttons above.';
+    await message.reply({ content: noCategoryResponse, flags: ['SuppressEmbeds'] });
+
+    // Log interaction
+    if (this.loggingService) {
+      await this.loggingService.logTicketInteraction(message, noCategoryResponse, null, false);
     }
   }
 
