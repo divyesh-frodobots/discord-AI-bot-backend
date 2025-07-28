@@ -93,7 +93,7 @@ class TicketChannelService {
     const ticketState = await this.ticketSelectionService.get(channelId);
 
     // Step 2: Check if AI should respond
-    if (!this.shouldAIRespond(ticketState, message)) {
+    if (!(await this.shouldAIRespond(ticketState, message))) {
       return;
     }
 
@@ -123,9 +123,9 @@ class TicketChannelService {
    * Check if AI should respond to this message
    * @param {Object} ticketState - Current ticket state
    * @param {Object} message - Discord message object
-   * @returns {boolean} True if AI should respond
+   * @returns {Promise<boolean>} True if AI should respond
    */
-  shouldAIRespond(ticketState, message) {
+  async shouldAIRespond(ticketState, message) {
     // Don't respond if human help is requested
     if (ticketState.humanHelp) {
       return false;
@@ -134,6 +134,13 @@ class TicketChannelService {
     // Don't respond to staff messages
     if (this.isStaffMessage(message)) {
       console.log(`👥 Ignoring staff message from ${message.author.tag} in ticket ${message.channel.id}`);
+      return false;
+    }
+
+    // Check if this ticket has bot interaction data (new flow) or no data (old flow)
+    const hasBotInteraction = await this.ticketSelectionService.has(message.channel.id);
+    if (!hasBotInteraction) {
+      console.log(`🔇 AI staying silent: No bot interaction data found - this appears to be an old flow ticket handled by staff in ${message.channel.id}`);
       return false;
     }
 

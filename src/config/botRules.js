@@ -82,13 +82,14 @@ export default {
 
     // Staff roles (bot ignores messages from these roles)
     STAFF_ROLES: [
-      // "My Support team",
-      "Customer Support"
+      "Customer Support",
+      "FrodoBots Team",
     ],
 
     // Staff role IDs (bot ignores messages from these role IDs)
     STAFF_ROLE_IDS: [
       "1217016478193422406", // Support team role ID
+      "1206793648734347284", // FrodoBots Team role ID
       // Add more staff role IDs here as needed
     ],
 
