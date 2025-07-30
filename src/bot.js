@@ -188,7 +188,7 @@ function isPublicChannelMessage(message) {
 async function handlePublicChannelFlow(message) {
   try {
     // Check if bot should respond
-    const responseCheck = publicChannelService.shouldRespond(message, client.user.id, client);
+    const responseCheck = await publicChannelService.shouldRespond(message, client.user.id, client);
     
     if (!responseCheck.shouldRespond) {
       handleNonResponseCase(responseCheck.reason, message);
@@ -319,12 +319,15 @@ async function checkForEscalation(context) {
  * Generate and send AI response
  */
 async function generateAIResponse(context) {
+  // Generate thread-specific conversation key
+  const conversationKey = getConversationKey(context.message);
+  
   // Initialize conversation
-  await publicConversationService.initializeConversation(context.userId, null, true);
-  publicConversationService.addUserMessage(context.userId, context.message.content, true);
+  await publicConversationService.initializeConversation(conversationKey, null, false);
+  publicConversationService.addUserMessage(conversationKey, context.message.content, false);
   
   // Get conversation history and generate response
-  const conversationHistory = publicConversationService.getConversationHistory(context.userId, true);
+  const conversationHistory = publicConversationService.getConversationHistory(conversationKey, false);
   const aiResponse = await aiService.generateResponse(conversationHistory);
   
   // Stop typing
@@ -338,6 +341,21 @@ async function generateAIResponse(context) {
     await handleLowConfidenceResponse(context, aiResponse);
   } else {
     await handleNormalResponse(context, aiResponse);
+  }
+}
+
+/**
+ * Generate conversation key based on message context
+ */
+function getConversationKey(message) {
+  const userId = message.author.id;
+  
+  if (message.channel.isThread()) {
+    const parentChannelId = message.channel.parentId;
+    const threadId = message.channel.id;
+    return `user_${userId}:${parentChannelId}:${threadId}`;
+  } else {
+    return `user_${userId}`;
   }
 }
 
@@ -371,7 +389,8 @@ async function handleNormalResponse(context, aiResponse) {
   
   // Add to conversation history if valid
   if (aiResponse.isValid) {
-    publicConversationService.addAssistantMessage(context.userId, aiResponse.response, true);
+    const conversationKey = getConversationKey(context.message);
+    publicConversationService.addAssistantMessage(conversationKey, aiResponse.response, false);
   }
   
   await logInteraction(context, responseText, aiResponse.confidence);

@@ -1,6 +1,7 @@
 import botRules from '../config/botRules.js';
 import { buildHumanHelpPrompt } from './ArticleService.js';
 import constants from '../config/constants.js';
+import redis from './redisClient.js';
 
 /**
  * Public Channel Service - Thread-Based Conversation Management
@@ -41,12 +42,12 @@ class PublicChannelService {
    * @param {Object} client - Discord client
    * @returns {Object} Response decision with reason
    */
-  shouldRespond(message, botUserId, client = null) {
+  async shouldRespond(message, botUserId, client = null) {
     const userId = message.author.id;
 
     // THREAD MESSAGES: Handle messages in existing threads
     if (message.channel.isThread()) {
-      return this._handleThreadMessage(message, userId);
+      return await this._handleThreadMessage(message, userId);
     }
 
     // MAIN CHANNEL MESSAGES: Handle new conversation requests
@@ -60,14 +61,15 @@ class PublicChannelService {
   /**
    * Handle messages within existing threads
    */
-  _handleThreadMessage(message, userId) {
-    if (!this.isInUserThread(message)) {
+  async _handleThreadMessage(message, userId) {
+    if (!(await this.isInUserThread(message))) {
       return { shouldRespond: false, reason: 'not_user_thread' };
     }
 
-    // Check escalation state
+    // Check escalation state per thread
     const parentChannelId = message.channel.parentId;
-    const sessionKey = `${userId}:${parentChannelId}`;
+    const threadId = message.channel.id;
+    const sessionKey = `${userId}:${parentChannelId}:${threadId}`;
     
     if (this.escalatedUsers.get(sessionKey)) {
       return { shouldRespond: false, reason: 'escalated' };
@@ -89,18 +91,7 @@ class PublicChannelService {
       return { shouldRespond: false, reason: 'channel_not_approved' };
     }
 
-    // Check for existing active thread
-    if (client && this.hasActiveThread(userId, channelId, client)) {
-      console.log(`🚫 User ${userId} has active thread, cannot create new one`);
-      return { shouldRespond: false, reason: 'has_active_thread' };
-    }
-
-    // Check escalation state
-    if (this.escalatedUsers.get(sessionKey)) {
-      return { shouldRespond: false, reason: 'escalated' };
-    }
-
-    // Check if user mentioned bot (required for thread creation)
+    // Check for bot mention
     if (!this._isBotMentioned(message.content, botUserId)) {
       return { shouldRespond: false, reason: 'no_mention' };
     }
@@ -121,20 +112,15 @@ class PublicChannelService {
     try {
       const userId = message.author.id;
       const channelId = message.channel.id;
-      const sessionKey = `${userId}:${channelId}`;
-      
       const threadName = this._generateThreadName(message.content, message.author.username);
-      
       const thread = await message.startThread({
         name: threadName,
         autoArchiveDuration: this.THREAD_AUTO_ARCHIVE_DURATION,
         reason: reason
       });
-
-      this.userThreads.set(sessionKey, thread.id);
+      // Store in Redis for persistence (allow multiple threads)
+      await redis.set(`publicthread:${userId}:${channelId}:${thread.id}`, 'active');
       console.log(`📝 Created thread "${threadName}" (ID: ${thread.id}) for user ${message.author.username}`);
-      
-      // Log thread creation event
       if (client) {
         await this.logThreadCreation(
           userId, 
@@ -145,7 +131,6 @@ class PublicChannelService {
           client
         );
       }
-      
       return thread;
     } catch (error) {
       console.error('Error creating thread:', error);
@@ -156,23 +141,30 @@ class PublicChannelService {
   /**
    * Check if user has an active (non-archived) thread
    */
-  hasActiveThread(userId, channelId, client) {
+  async hasActiveThread(userId, channelId, client) {
     const sessionKey = `${userId}:${channelId}`;
-    const threadId = this.userThreads.get(sessionKey);
+    // Try Redis first
+    let threadId = await redis.get(`publicthread:${userId}:${channelId}:${threadId}`);
+    if (!threadId) {
+      // Fallback to in-memory (for legacy/transition)
+      threadId = this.userThreads.get(sessionKey);
+    }
     
     if (!threadId) return false;
     
     try {
       const thread = client.channels.cache.get(threadId);
       if (thread && !thread.archived) {
+        // Sync in-memory for fast access
+        this.userThreads.set(sessionKey, threadId);
         return true;
       } else {
-        this.cleanupUserSession(userId, channelId);
+        await this.cleanupUserSession(userId, channelId);
         console.log(`🧹 Cleaned up closed/archived thread for user ${userId} in channel ${channelId}`);
         return false;
       }
     } catch (error) {
-      this.cleanupUserSession(userId, channelId);
+      await this.cleanupUserSession(userId, channelId);
       console.log(`🧹 Cleaned up missing thread for user ${userId} in channel ${channelId}`);
       return false;
     }
@@ -181,27 +173,14 @@ class PublicChannelService {
   /**
    * Check if message is in the user's own thread
    */
-  isInUserThread(message) {
+  async isInUserThread(message) {
     if (!message.channel.isThread()) return false;
-    
     const userId = message.author.id;
     const parentChannelId = message.channel.parentId;
-    const sessionKey = `${userId}:${parentChannelId}`;
-    const userThreadId = this.userThreads.get(sessionKey);
-    
-    // Primary check: thread is tracked
-    if (userThreadId === message.channel.id) {
-      return true;
-    }
-    
-    // Fallback: restore tracking after server restart
-    if (!userThreadId && this._isLikelyUserThread(message, userId)) {
-      this.userThreads.set(sessionKey, message.channel.id);
-      console.log(`🔄 Restored thread tracking for user ${message.author.username} in thread ${message.channel.name}`);
-      return true;
-    }
-    
-    return false;
+    const threadId = message.channel.id;
+    // Check Redis for this thread
+    const exists = await redis.exists(`publicthread:${userId}:${parentChannelId}:${threadId}`);
+    return !!exists;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════════
@@ -251,9 +230,10 @@ class PublicChannelService {
   async escalateToHuman(message, client = null, targetChannel = null) {
     const userId = message.author.id;
     const channelId = message.channel.isThread() ? message.channel.parentId : message.channel.id;
-    const sessionKey = `${userId}:${channelId}`;
+    const threadId = message.channel.isThread() ? message.channel.id : null;
     
-    // Mark user as escalated
+    // Mark user as escalated per thread (not per channel)
+    const sessionKey = threadId ? `${userId}:${channelId}:${threadId}` : `${userId}:${channelId}`;
     this.escalatedUsers.set(sessionKey, true);
     
     // Send support message to appropriate channel
@@ -396,10 +376,11 @@ class PublicChannelService {
   /**
    * Clean up all tracking for a user session
    */
-  cleanupUserSession(userId, channelId) {
+  async cleanupUserSession(userId, channelId) {
     const sessionKey = `${userId}:${channelId}`;
     
     this.userThreads.delete(sessionKey);
+    await redis.del(`publicthread:${userId}:${channelId}:*`); // Clean up all thread keys for this user/channel
     this.escalatedUsers.delete(sessionKey);
     
     console.log(`✨ Cleaned up complete session for user ${userId} in channel ${channelId}`);
@@ -785,6 +766,31 @@ class PublicChannelService {
    */
   getFriendlyPrompt() {
     return "Hi! How can I help you today? Please ask your question.";
+  }
+
+  // Helper to generate a unique conversation key per thread
+  getThreadConversationKey(message) {
+    const userId = message.author.id;
+    const parentChannelId = message.channel.parentId;
+    const threadId = message.channel.id;
+    return `user_${userId}:${parentChannelId}:${threadId}`;
+  }
+
+  // Example usage in your thread message handler (update all relevant places):
+  async handleThreadMessage(message, aiService, conversationService) {
+    const conversationKey = this.getThreadConversationKey(message);
+    // Initialize conversation for this thread if needed
+    await conversationService.initializeConversation(conversationKey, null, false);
+    // Add user message
+    conversationService.addUserMessage(conversationKey, message.content, false);
+    // Get conversation history for this thread
+    const conversationHistory = conversationService.getConversationHistory(conversationKey, false);
+    // Generate AI response
+    const aiResponse = await aiService.generateResponse(conversationHistory);
+    // Add assistant message
+    conversationService.addAssistantMessage(conversationKey, aiResponse.response, false);
+    // Reply in thread
+    await message.reply(aiResponse.response);
   }
 }
 
