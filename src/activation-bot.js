@@ -359,7 +359,7 @@ class ActivationBot {
         const conversationHistory = this.conversationService.getConversationHistory(userId, false);
 
         // Generate AI response using cached EarthRovers knowledge
-        const aiResponse = await this.aiService.generateResponse(conversationHistory);
+        const aiResponse = await this.aiService.generateResponse(conversationHistory, message.guild.id);
         
         // Clear typing indicator
         if (typingInterval) clearInterval(typingInterval);
@@ -430,7 +430,7 @@ Respond with ONLY one word: "ESCALATE" or "CONTINUE"
       ];
 
       await message.channel.sendTyping();
-      const aiResponse = await this.aiService.generateResponse(messages);
+      const aiResponse = await this.aiService.generateResponse(messages, message.guild.id);
       
       // Check if AI detected escalation intent
       const isEscalationRequest = aiResponse && 

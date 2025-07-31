@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import constants from "../config/constants.js";
+import { getServerFallbackResponse } from '../config/serverConfigs.js';
 
 class AIService {
   constructor() {
@@ -12,7 +13,7 @@ class AIService {
     });
   }
 
-  async generateResponse(messages) {
+  async generateResponse(messages, guildId = null) {
     try {
       const completion = await this.openai.chat.completions.create({
         model: "gpt-4.1",
@@ -25,19 +26,19 @@ class AIService {
 
       const reply = completion.choices[0].message.content;
       const confidence = this.calculateConfidence(reply, messages);
-      return this.validateResponse(reply, confidence);
+      return this.validateResponse(reply, confidence, guildId);
     } catch (err) {
       console.error("OpenAI Error:", err.message);
       throw new Error("AI service error");
     }
   }
 
-  validateResponse(reply, confidence) {
+  validateResponse(reply, confidence, guildId) {
     // Check if the reply is meaningful
     if (!reply || reply.trim().length < 5) {
       return {
         isValid: false,
-        response: constants.MESSAGES.getFallbackResponse(constants.ROLES.SUPPORT_TEAM),
+        response: getServerFallbackResponse(guildId),
         confidence: 0
       };
     }

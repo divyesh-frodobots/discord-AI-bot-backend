@@ -1,12 +1,12 @@
 import botRules from '../config/botRules.js';
+import { getServerConfig } from '../config/serverConfigs.js';
 
 class LoggingService {
   constructor(client) {
     this.client = client;
     this.logChannels = {
-      ticket: null,
-      admin: null,
-      public: null
+      // Now organized by guild ID
+      // guildId: { ticket: channel, admin: channel, public: channel }
     };
     this.initializeLogChannels();
   }
@@ -18,34 +18,81 @@ class LoggingService {
       const guilds = this.client.guilds.cache;
       
       for (const [guildId, guild] of guilds) {
-        // Use channel ID instead of name for ticket logs
-        const ticketLogsChannel = guild.channels.cache.get(botRules.LOGGING.TICKET_LOGS_CHANNEL);
-        
-        if (ticketLogsChannel) {
-          this.logChannels.ticket = ticketLogsChannel;
-          console.log(`✅ Found ticket logs channel: ${ticketLogsChannel.name} (${ticketLogsChannel.id})`);
-        }
+        // Initialize guild-specific log channels
+        this.logChannels[guildId] = {
+          ticket: null,
+          admin: null,
+          public: null
+        };
 
-        // Find admin logs channel
-        const adminLogsChannel = guild.channels.cache.find(channel => 
-          channel.name === botRules.LOGGING.ADMIN_LOGS_CHANNEL && 
-          channel.type === 0 // GuildText
-        );
+        // Get server-specific configuration
+        const serverConfig = getServerConfig(guildId);
         
-        if (adminLogsChannel) {
-          this.logChannels.admin = adminLogsChannel;
-          console.log(`✅ Found admin logs channel: ${adminLogsChannel.name} (${adminLogsChannel.id})`);
-        }
+        if (serverConfig) {
+          // Use server-specific channel IDs
+          console.log(`🔧 [${guild.name}] Looking for ticket logs channel with ID:`, serverConfig.loggingChannels.ticketLogs);
+          console.log(`🔧 [${guild.name}] Available channels:`, guild.channels.cache.map(c => `${c.name} (${c.id})`));
+          
+          const ticketLogsChannel = guild.channels.cache.get(serverConfig.loggingChannels.ticketLogs);
+          
+          if (ticketLogsChannel) {
+            this.logChannels[guildId].ticket = ticketLogsChannel;
+            console.log(`✅ [${guild.name}] Found ticket logs channel: ${ticketLogsChannel.name} (${ticketLogsChannel.id})`);
+          } else {
+            console.log(`❌ [${guild.name}] Could not find ticket logs channel with ID: ${serverConfig.loggingChannels.ticketLogs}`);
+          }
 
-        // Find public logs channel
-        const publicLogsChannel = guild.channels.cache.find(channel => 
-          channel.name === botRules.LOGGING.PUBLIC_LOGS_CHANNEL && 
-          channel.type === 0 // GuildText
-        );
-        
-        if (publicLogsChannel) {
-          this.logChannels.public = publicLogsChannel;
-          console.log(`✅ Found public logs channel: ${publicLogsChannel.name} (${publicLogsChannel.id})`);
+          // Find admin logs channel by name
+          const adminLogsChannel = guild.channels.cache.find(channel => 
+            channel.name === serverConfig.loggingChannels.adminLogs && 
+            channel.type === 0 // GuildText
+          );
+          
+          if (adminLogsChannel) {
+            this.logChannels[guildId].admin = adminLogsChannel;
+            console.log(`✅ [${guild.name}] Found admin logs channel: ${adminLogsChannel.name} (${adminLogsChannel.id})`);
+          }
+
+          // Find public logs channel by name
+          const publicLogsChannel = guild.channels.cache.find(channel => 
+            channel.name === serverConfig.loggingChannels.publicLogs && 
+            channel.type === 0 // GuildText
+          );
+          
+          if (publicLogsChannel) {
+            this.logChannels[guildId].public = publicLogsChannel;
+            console.log(`✅ [${guild.name}] Found public logs channel: ${publicLogsChannel.name} (${publicLogsChannel.id})`);
+          }
+        } else {
+          // Fallback to global configuration for unconfigured servers
+          const ticketLogsChannel = guild.channels.cache.get(botRules.LOGGING.TICKET_LOGS_CHANNEL);
+          
+          if (ticketLogsChannel) {
+            this.logChannels[guildId].ticket = ticketLogsChannel;
+            console.log(`✅ [${guild.name}] Found ticket logs channel (fallback): ${ticketLogsChannel.name} (${ticketLogsChannel.id})`);
+          }
+
+          // Find admin logs channel
+          const adminLogsChannel = guild.channels.cache.find(channel => 
+            channel.name === botRules.LOGGING.ADMIN_LOGS_CHANNEL && 
+            channel.type === 0 // GuildText
+          );
+          
+          if (adminLogsChannel) {
+            this.logChannels[guildId].admin = adminLogsChannel;
+            console.log(`✅ [${guild.name}] Found admin logs channel (fallback): ${adminLogsChannel.name} (${adminLogsChannel.id})`);
+          }
+
+          // Find public logs channel
+          const publicLogsChannel = guild.channels.cache.find(channel => 
+            channel.name === botRules.LOGGING.PUBLIC_LOGS_CHANNEL && 
+            channel.type === 0 // GuildText
+          );
+          
+          if (publicLogsChannel) {
+            this.logChannels[guildId].public = publicLogsChannel;
+            console.log(`✅ [${guild.name}] Found public logs channel (fallback): ${publicLogsChannel.name} (${publicLogsChannel.id})`);
+          }
         }
       }
     } catch (error) {
@@ -56,6 +103,24 @@ class LoggingService {
   // Format timestamp
   formatTimestamp() {
     return new Date().toISOString();
+  }
+
+  // Helper method to get log channel for specific guild and type
+  getLogChannel(guildId, channelType) {
+    console.log(`🔧 [getLogChannel] ENTRY - Looking for ${channelType} channel in guild:`, guildId);
+    
+    const guildChannels = this.logChannels[guildId];
+    console.log(`🔧 [getLogChannel] guildChannels:`, guildChannels);
+    
+    if (!guildChannels) {
+      console.log(`❌ [getLogChannel] No guild channels found for guild:`, guildId);
+      return null;
+    }
+    
+    const channel = guildChannels[channelType];
+    console.log(`🔧 [getLogChannel] channelType:`, channelType, 'channel:', channel);
+    console.log(`🔧 [getLogChannel] FINAL RETURN:`, channel);
+    return channel;
   }
 
   // Anonymize user ID if privacy is enabled
@@ -88,7 +153,18 @@ class LoggingService {
 
   // Log ticket interaction
   async logTicketInteraction(message, botResponse, product = null, escalation = false) {
-    if (!botRules.LOGGING.LOG_LEVELS.QUERIES || !this.logChannels.ticket) {
+    console.log(`📝 [logTicketInteraction] Starting for guild:`, message.guild?.id);
+    
+    console.log(`📝 [logTicketInteraction] About to call getLogChannel with guild:`, message.guild.id, 'type:', 'ticket');
+    
+    const ticketLogChannel = this.getLogChannel(message.guild.id, 'ticket');
+    
+    console.log(`📝 [logTicketInteraction] Got ticketLogChannel:`, ticketLogChannel);
+    console.log(`📝 [logTicketInteraction] Channel type:`, typeof ticketLogChannel);
+    console.log(`📝 [logTicketInteraction] Has send method:`, typeof ticketLogChannel?.send);
+    
+    if (!botRules.LOGGING.LOG_LEVELS.QUERIES || !ticketLogChannel) {
+      console.log(`📝 [logTicketInteraction] Skipping log - QUERIES enabled:`, botRules.LOGGING.LOG_LEVELS.QUERIES, 'Channel exists:', !!ticketLogChannel);
       return;
     }
 
@@ -142,7 +218,14 @@ class LoggingService {
         timestamp: new Date()
       };
 
-      await this.logChannels.ticket.send({ embeds: [logEmbed] });
+      // Safety check before sending
+      if (typeof ticketLogChannel?.send !== 'function') {
+        console.error(`❌ [logTicketInteraction] ticketLogChannel.send is not a function. Channel:`, ticketLogChannel);
+        console.error(`❌ [logTicketInteraction] Channel type:`, typeof ticketLogChannel);
+        return;
+      }
+
+      await ticketLogChannel.send({ embeds: [logEmbed] });
       
       console.log(`📝 Logged ticket interaction: ${username} in ${channelName}`);
     } catch (error) {
@@ -232,7 +315,8 @@ class LoggingService {
 
   // Log escalation
   async logEscalation(message, reason = 'User requested human help') {
-    if (!botRules.LOGGING.LOG_LEVELS.ESCALATIONS || !this.logChannels.admin) {
+    const adminLogChannel = this.getLogChannel(message.guild?.id, 'admin');
+    if (!botRules.LOGGING.LOG_LEVELS.ESCALATIONS || !adminLogChannel) {
       return;
     }
 
@@ -274,7 +358,7 @@ class LoggingService {
         timestamp: new Date()
       };
 
-      await this.logChannels.admin.send({ embeds: [logEmbed] });
+      await adminLogChannel.send({ embeds: [logEmbed] });
       
       console.log(`📝 Logged escalation: ${username} in ${channelName}`);
     } catch (error) {
@@ -366,11 +450,6 @@ class LoggingService {
     } catch (error) {
       console.error('Error logging rate limit:', error);
     }
-  }
-
-  // Get log channel by type
-  getLogChannel(type) {
-    return this.logChannels[type];
   }
 
   // Check if logging is enabled for a specific type

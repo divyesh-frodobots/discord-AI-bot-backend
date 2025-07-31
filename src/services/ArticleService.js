@@ -1,6 +1,6 @@
 import axios from "axios";
 import * as cheerio from 'cheerio';
-import constants from "../config/constants.js";
+import { getServerFallbackResponse } from '../config/serverConfigs.js';
 
 class ArticleService {
   constructor() {
@@ -624,7 +624,7 @@ TONE: Friendly, helpful, honest, and encouraging. Like talking to a knowledgeabl
   `.trim();
 }
 
-export function buildHumanHelpPrompt() {
+export function buildHumanHelpPrompt(guildId) {
   return `
 You are an advanced customer support AI for FrodoBots, operating as a Discord bot within the FrodoBots Discord server. You are designed to assist users while accurately identifying when human intervention is needed. Your goal is to maximize user satisfaction by detecting subtle cues that indicate a need for real support, even when explicit keywords are missing.
 
@@ -706,7 +706,7 @@ DECISION CRITERIA:
 RESPONSE PROTOCOL:
 
 If human support is required, respond with ONLY the exact escalation message:
-${constants.MESSAGES.getFallbackResponse(constants.ROLES.SUPPORT_TEAM)}
+${getServerFallbackResponse(guildId)}
 
 If automated help is sufficient, provide a relevant, helpful answer in a friendly, conversational tone.
 

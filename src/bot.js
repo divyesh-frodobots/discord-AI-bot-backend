@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { Client, GatewayIntentBits, ChannelType } from "discord.js";
+import { getServerFallbackResponse } from './config/serverConfigs.js';
 
 // Import services
 import ArticleService from "./services/ArticleService.js";
@@ -133,7 +134,7 @@ async function handlePublicChannelMessage(message, publicChannelService) {
     conversationService.addUserMessage(userId, message.content, true);
     const conversationHistory = conversationService.getConversationHistory(userId, true);
     console.log("----conversationHistory----", conversationHistory);
-    const aiResponse = await aiService.generateResponse(conversationHistory);
+    const aiResponse = await aiService.generateResponse(conversationHistory, message.guild.id);
     console.log("----aiResponse----", aiResponse);
     if (typingInterval) clearInterval(typingInterval);
     // --- Confidence Threshold ---
@@ -155,7 +156,7 @@ async function handlePublicChannelMessage(message, publicChannelService) {
   } catch (err) {
     if (typingInterval) clearInterval(typingInterval);
     console.error("Error processing public channel message:", err.message);
-    message.reply(constants.MESSAGES.getFallbackResponse(constants.ROLES.SUPPORT_TEAM));
+    message.reply(getServerFallbackResponse(message.guild.id));
   }
 }
 

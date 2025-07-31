@@ -1,5 +1,6 @@
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 import constants from '../config/constants.js';
+import { getSupportTeamId } from '../config/serverConfigs.js';
 
 export default {
   data: new SlashCommandBuilder()
@@ -9,7 +10,7 @@ export default {
 
   async execute(interaction, ticketSelectionService) {
     // Check if user has the support team role
-    const supportRoleId = constants.ROLES.SUPPORT_TEAM;
+    const supportRoleId = getSupportTeamId(interaction.guild.id);
     const hasSupportRole = interaction.member.roles.cache.has(supportRoleId);
     
     if (!hasSupportRole) {
