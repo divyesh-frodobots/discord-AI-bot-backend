@@ -1,6 +1,6 @@
-import constants from '../config/constants.js';
 import { buildSystemPrompt as buildArticleSystemPrompt, buildHumanHelpPrompt } from './ArticleService.js';
 import botRules from '../config/botRules.js';
+import { getServerConfig, getServerFallbackResponse } from '../config/serverConfigs.js';
 
 /**
  * ProductService - Centralized product management
@@ -64,6 +64,7 @@ export class ProductService {
         const logMessage = {
           author: { tag: interaction.user.tag, id: interaction.user.id },
           channel: interaction.channel,
+          guild: interaction.guild, // Add the guild property
           content: `Product selected: ${productInfo.name}`
         };
         
@@ -144,7 +145,7 @@ export class EscalationService {
       const selection = { product: null, humanHelp: true };
       await ticketSelectionService.set(channelId, selection);
       
-      const helpMessage = constants.MESSAGES.getFallbackResponse(constants.ROLES.SUPPORT_TEAM);
+      const helpMessage = getServerFallbackResponse(interaction.guild.id);
       await interaction.editReply({ content: helpMessage });
       
       // Log human help request
@@ -171,19 +172,19 @@ export class EscalationService {
    */
   async detectHumanHelpRequest(message) {
     try {
-      const systemContent = buildHumanHelpPrompt();
+      const systemContent = buildHumanHelpPrompt(message.guild.id);
       const messages = [
         { role: "system", content: systemContent },
         { role: "user", content: message.content }
       ];
 
       await message.channel.sendTyping();
-      const aiResponse = await this.aiService.generateResponse(messages);
+      const aiResponse = await this.aiService.generateResponse(messages, message.guild.id);
       
       // Check if AI detected escalation intent
       return aiResponse && 
              aiResponse.isValid && 
-             aiResponse.response.includes(constants.MESSAGES.getFallbackResponse(constants.ROLES.SUPPORT_TEAM));
+             aiResponse.response.includes(getServerFallbackResponse(message.guild.id));
 
     } catch (error) {
       console.error('❌ Error detecting human help request:', error);
@@ -227,9 +228,13 @@ export class EscalationService {
 export class ChannelUtilsService {
   /**
    * Check if channel is a ticket channel
+   * Supports multi-server configuration
    */
   static isTicketChannel(channel) {
-    return channel.isThread && channel.isThread() && channel.parentId === constants.ROLES.SUPPORT_TICKET_CHANNEL_ID;
+    // Get server-specific configuration
+    const serverConfig = getServerConfig(channel.guild?.id);    
+    // Only return true for threads whose parent is the server's support ticket channel
+    return channel.isThread && channel.isThread() && channel.parentId === serverConfig.ticketChannelId;
   }
 
   /**

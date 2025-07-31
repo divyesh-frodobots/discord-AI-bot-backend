@@ -1,5 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import constants from "../config/constants.js";
+import { getServerConfig, getServerFallbackResponse } from '../config/serverConfigs.js';
 
 /**
  * TicketChannelManager - Handles ticket lifecycle events
@@ -23,7 +24,10 @@ class TicketChannelManager {
    * @returns {boolean} True if it's a ticket channel
    */
   isTicketChannel(channel) {
-    return channel.isThread && channel.isThread() && channel.parentId === constants.ROLES.SUPPORT_TICKET_CHANNEL_ID;
+    // Get server-specific configuration
+    const serverConfig = getServerConfig(channel.guild.id);
+    // Only return true for threads whose parent is the server's support ticket channel
+    return channel.isThread && channel.isThread() && channel.parentId === serverConfig.ticketChannelId;
   }
 
   /**
@@ -139,21 +143,11 @@ class TicketChannelManager {
    */
   async sendSupportMessage(channel) {
     try {
-      console.log("==========sendSupportMessage");
-      const supportMessage = constants.MESSAGES.getFallbackResponse(constants.ROLES.SUPPORT_TEAM);
+      const supportMessage = getServerFallbackResponse(channel.guild.id);
       await channel.send({ content: supportMessage });
     } catch (error) {
       console.error('❌ Error sending support message:', error);
     }
-  }
-
-  /**
-   * Get support escalation message
-   * @returns {string} Support message text
-   */
-  getSupportMessage() {
-    console.log("==========getSupportMessage");
-    return constants.MESSAGES.getFallbackResponse(constants.ROLES.SUPPORT_TEAM);
   }
 }
 
