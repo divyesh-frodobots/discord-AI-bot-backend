@@ -1,7 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from "discord.js";
-import constants from "../config/constants.js";
-import botRules from "../config/botRules.js";
 import { buildSystemPrompt } from './ArticleService.js';
+import { getServerConfig, getServerFallbackResponse } from '../config/serverConfigs.js';
 
 /**
  * TicketButtonHandler - Handles all button interactions in ticket channels
@@ -162,7 +161,7 @@ class TicketButtonHandler {
       });
 
       // Step 2: Send human help message
-      const helpMessage = constants.MESSAGES.getFallbackResponse(constants.ROLES.SUPPORT_TEAM);
+      const helpMessage = getServerFallbackResponse(interaction.guild.id);
       await interaction.editReply({ content: helpMessage });
 
       // Step 3: Log human help request
@@ -179,7 +178,7 @@ class TicketButtonHandler {
    * @param {Object} interaction - Discord button interaction
    */
   async showProductSelection(interaction) {
-    const productButtons = this.createProductButtons();
+    const productButtons = this.createProductButtons(interaction.guild.id);
     const components = Object.values(productButtons).filter(Boolean); // Only non-null rows
     await interaction.editReply({
       content: "Select a product to get assistance:",
@@ -192,7 +191,7 @@ class TicketButtonHandler {
    * @param {Object} interaction - Discord button interaction
    */
   async showSoftwareProductSelection(interaction) {
-    const productButtons = this.createProductButtons();
+    const productButtons = this.createProductButtons(interaction.guild.id);
     const components = Object.values(productButtons).filter(Boolean); // Only non-null rows
     await interaction.editReply({
       content: "Select the product you're having software/setup issues with:",
@@ -261,10 +260,13 @@ class TicketButtonHandler {
 
   /**
    * Create product selection buttons
+   * @param {string} guildId - Discord guild ID to get server-specific configuration
    * @returns {Object} Button rows object
    */
-  createProductButtons() {
-    const hideSpecial = process.env.DISCORD_SERVER_NAME === 'frodobots_owner';
+  createProductButtons(guildId = null) {
+    // Use server configuration instead of environment variable
+    const serverConfig = getServerConfig(guildId);
+    const hideSpecial = serverConfig?.name === 'frodobots_owner';
     const row1 = new ActionRowBuilder();
     let row2 = null;
     if (!hideSpecial) {
@@ -335,7 +337,10 @@ class TicketButtonHandler {
    * @returns {boolean} True if it's a ticket channel
    */
   isTicketChannel(channel) {
-    return channel.isThread && channel.isThread() && channel.parentId === constants.ROLES.SUPPORT_TICKET_CHANNEL_ID;
+    // Get server-specific configuration
+    const serverConfig = getServerConfig(channel.guild?.id);    
+    // Only return true for threads whose parent is the server's support ticket channel
+    return channel.isThread && channel.isThread() && channel.parentId === serverConfig.ticketChannelId;
   }
 
   /**
@@ -359,6 +364,7 @@ class TicketButtonHandler {
     const logMessage = {
       author: { tag: interaction.user.tag, id: interaction.user.id },
       channel: interaction.channel,
+      guild: interaction.guild, // Add the guild property
       content: `Category selected: ${interaction.customId}`
     };
     
@@ -381,6 +387,7 @@ class TicketButtonHandler {
     const logMessage = {
       author: { tag: interaction.user.tag, id: interaction.user.id },
       channel: interaction.channel,
+      guild: interaction.guild, // Add the guild property
       content: `Product selected: ${productInfo.name}`
     };
     
@@ -402,6 +409,7 @@ class TicketButtonHandler {
     const logMessage = {
       author: { tag: interaction.user.tag, id: interaction.user.id },
       channel: interaction.channel,
+      guild: interaction.guild, // Add the guild property
       content: 'Human help requested via button'
     };
     

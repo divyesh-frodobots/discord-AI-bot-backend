@@ -1,6 +1,6 @@
 import axios from "axios";
 import * as cheerio from 'cheerio';
-import constants from "../config/constants.js";
+import { getServerFallbackResponse } from '../config/serverConfigs.js';
 
 class ArticleService {
   constructor() {
@@ -52,7 +52,7 @@ class ArticleService {
   isValidFrodoBotsUrl(url) {
     try {
       const urlObj = new URL(url);
-      return urlObj.hostname === 'intercom.help' && 
+      return urlObj.hostname === 'intercom.help' &&
              urlObj.pathname.startsWith('/frodobots/en/');
     } catch (error) {
       return false;
@@ -79,7 +79,7 @@ class ArticleService {
           "User-Agent": "Mozilla/5.0 (compatible; UFB-Bot/1.0)",
         },
       });
-      
+
       const $ = cheerio.load(data);
       const links = [];
 
@@ -88,7 +88,7 @@ class ArticleService {
         const href = $(element).attr("href");
         if (href) {
           let fullUrl;
-          
+
           if (href.startsWith("http")) {
             fullUrl = href;
           } else if (href.startsWith("/")) {
@@ -98,8 +98,8 @@ class ArticleService {
           }
 
           const normalizedUrl = this.normalizeUrl(fullUrl);
-          
-          if (this.isValidFrodoBotsUrl(normalizedUrl) && 
+
+          if (this.isValidFrodoBotsUrl(normalizedUrl) &&
               !this.discoveredUrls.has(normalizedUrl)) {
             links.push(normalizedUrl);
             this.discoveredUrls.add(normalizedUrl);
@@ -113,7 +113,7 @@ class ArticleService {
       return [];
           }
     }
-  
+
   // Clean and format URLs for Discord auto-linking
   cleanUrlsForDiscord(text) {
     // First, extract URLs from existing markdown links [text](url)
@@ -123,7 +123,7 @@ class ArticleService {
       // Return just the URL for Discord auto-linking
       return cleanUrl;
     });
-    
+
     // Then handle any remaining plain URLs
     const urlRegex = /https?:\/\/[^\s<>"{}|\\^`[\]()]+/g;
     text = text.replace(urlRegex, (url) => {
@@ -131,7 +131,7 @@ class ArticleService {
       let cleanUrl = url.replace(/[.,;!?]+$/, '');
       return cleanUrl;
     });
-    
+
     return text;
   }
 
@@ -144,13 +144,13 @@ class ArticleService {
           "User-Agent": "Mozilla/5.0 (compatible; UFB-Bot/1.0)",
         },
       });
-      
+
       const $ = cheerio.load(data);
-      
+
       // Try multiple selectors to extract content
       let content = "";
       let mediaContent = "";
-      
+
       // Try article tag first
       const articleElement = $("article");
       if (articleElement.length > 0) {
@@ -169,12 +169,12 @@ class ArticleService {
           mediaContent = this.extractMediaContent($, bodyElement, url);
         }
       }
-      
+
       // Clean up the text, convert URLs to clickable format, and combine with media content
       const cleanText = content.replace(/\s+/g, " ").trim();
       const textWithClickableUrls = this.cleanUrlsForDiscord(cleanText);
       const combinedContent = textWithClickableUrls + (mediaContent ? "\n\n" + mediaContent : "");
-      
+
       return combinedContent;
     } catch (err) {
       console.error(`Error fetching article ${url}:`, err.message);
@@ -185,7 +185,7 @@ class ArticleService {
   // Extract media content (links, images, videos) from a cheerio element
   extractMediaContent($, element, baseUrl) {
     const mediaItems = [];
-    
+
     // Extract links
     element.find('a[href]').each((index, link) => {
       const href = $(link).attr('href');
@@ -202,7 +202,7 @@ class ArticleService {
         mediaItems.push(`${text}: ${fullUrl}`);
       }
     });
-    
+
     // Extract images
     element.find('img[src]').each((index, img) => {
       const src = $(img).attr('src');
@@ -219,7 +219,7 @@ class ArticleService {
         mediaItems.push(`Image: ${alt} (${fullUrl})`);
       }
     });
-    
+
     // Extract videos (iframe, video tags, etc.)
     element.find('iframe[src], video source[src], video[src]').each((index, video) => {
       const src = $(video).attr('src');
@@ -236,7 +236,7 @@ class ArticleService {
         mediaItems.push(`Video: ${title} (${fullUrl})`);
       }
     });
-    
+
     // Extract embedded content (YouTube, Vimeo, etc.)
     element.find('iframe[src*="youtube"], iframe[src*="vimeo"], iframe[src*="dailymotion"]').each((index, iframe) => {
       const src = $(iframe).attr('src');
@@ -245,14 +245,14 @@ class ArticleService {
         mediaItems.push(`Embedded Video: ${title} (${src})`);
       }
     });
-    
+
     return mediaItems.length > 0 ? "Media Content:\n" + mediaItems.join('\n') : "";
   }
 
   // Recursive crawler to discover all pages
   async crawlPages(startUrl, depth = 0) {
-    if (depth >= this.MAX_DEPTH || 
-        this.visitedUrls.size >= this.MAX_URLS || 
+    if (depth >= this.MAX_DEPTH ||
+        this.visitedUrls.size >= this.MAX_URLS ||
         this.visitedUrls.has(startUrl)) {
       return [];
     }
@@ -263,7 +263,7 @@ class ArticleService {
     try {
       // Extract links from current page
       const links = await this.extractLinksFromPage(startUrl);
-      
+
       // Get content from current page
       const content = await this.fetchArticleText(startUrl);
       const results = content ? [{ url: startUrl, content }] : [];
@@ -276,7 +276,7 @@ class ArticleService {
           const batch = links.slice(i, i + batchSize);
           const batchPromises = batch.map(link => this.crawlPages(link, depth + 1));
           const batchResults = await Promise.all(batchPromises);
-          
+
           for (const batchResult of batchResults) {
             results.push(...batchResult);
           }
@@ -293,18 +293,18 @@ class ArticleService {
   // Get all article URLs by crawling from the base URL
   async getAllArticleUrls() {
     console.log("Starting crawl from base URL:", this.BASE_URL);
-    
+
     // Reset tracking sets
     this.discoveredUrls.clear();
     this.visitedUrls.clear();
-    
+
     // Start crawling from the base URL
     const crawledPages = await this.crawlPages(this.BASE_URL);
-    
+
     // Extract unique URLs
     const urls = [...new Set(crawledPages.map(page => page.url))];
     console.log(`Crawling completed. Found ${urls.length} unique pages.`);
-    
+
     return urls;
   }
 
@@ -388,11 +388,11 @@ class ArticleService {
       // Create a simple relevance check using the question and product context
       const questionLower = question.toLowerCase();
       const productContext = this.getProductContext(selectedProduct);
-      
+
       // Check if the question contains words that appear in the article content
       const questionWords = questionLower.split(/\s+/).filter(word => word.length > 2);
       const contentLower = allContent.toLowerCase();
-      
+
       // Count how many question words appear in the content
       let relevantWords = 0;
       for (const word of questionWords) {
@@ -400,11 +400,11 @@ class ArticleService {
           relevantWords++;
         }
       }
-      
+
       // If more than 50% of question words are found in content, consider it relevant
       const relevanceThreshold = Math.max(1, questionWords.length * 0.3); // At least 30% of words or 1 word
       const isRelevant = relevantWords >= relevanceThreshold;
-      
+
       return isRelevant;
     } catch (error) {
       console.error("Error checking product relevance:", error.message);
@@ -415,10 +415,10 @@ class ArticleService {
   // Fallback to keyword-based relevance check
   fallbackProductRelevance(question, selectedProduct) {
     const contentLower = question.toLowerCase();
-    
+
     const productKeywords = {
       ufb: [
-        'ufb', 'fighting bot', 'ultimate fighting bot', 'robot fighting', 
+        'ufb', 'fighting bot', 'ultimate fighting bot', 'robot fighting',
         'ufb.gg', 'session', 'booking', 'fight', 'combat', 'battle',
         'ultimate fighting', 'fighting game', 'robot combat', 'how to fight',
         'fight process', 'fight steps', 'start fight', 'fight tutorial'
@@ -448,7 +448,7 @@ class ArticleService {
         'robot fun activities', 'entertainment bot', 'fun robot games'
       ]
     };
-    
+
     const keywords = productKeywords[selectedProduct] || [];
     return keywords.some(keyword => contentLower.includes(keyword));
   }
@@ -624,7 +624,7 @@ TONE: Friendly, helpful, honest, and encouraging. Like talking to a knowledgeabl
   `.trim();
 }
 
-export function buildHumanHelpPrompt() {
+export function buildHumanHelpPrompt(guildId) {
   return `
 You are FrodoBots' AI assistant on Discord. Your role is to help users and escalate to the support team when human help is clearly needed. Detect both direct phrases and emotional or contextual signals that suggest escalation.
 

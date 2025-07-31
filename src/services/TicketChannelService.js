@@ -1,5 +1,5 @@
-import constants from '../config/constants.js';
 import { buildSystemPrompt, buildHumanHelpPrompt } from './ArticleService.js';
+import { getServerConfig, getServerFallbackResponse } from '../config/serverConfigs.js';
 import botRules from '../config/botRules.js';
 
 /**
@@ -45,8 +45,17 @@ class TicketChannelService {
    * @returns {boolean} True if it's a ticket channel
    */
   isTicketChannel(channel) {
-    // Only return true for threads whose parent is the support ticket channel
-    return channel.isThread && channel.isThread() && channel.parentId === constants.ROLES.SUPPORT_TICKET_CHANNEL_ID;
+    // Get server-specific configuration
+    const serverConfig = getServerConfig(channel.guild.id);
+    
+    // If no server config found, this server is not configured for tickets
+    if (!serverConfig) {
+      console.log(`⚠️ Server ${channel.guild.name} (${channel.guild.id}) is not configured in serverConfigs.js - skipping ticket channel check`);
+      return false;
+    }
+    
+    // Only return true for threads whose parent is the server's support ticket channel
+    return channel.isThread && channel.isThread() && channel.parentId === serverConfig.ticketChannelId;
   }
 
   /**
@@ -55,8 +64,12 @@ class TicketChannelService {
    * @returns {boolean} True if message is from staff
    */
   isStaffMessage(message) {
-    const staffRoles = botRules.TICKET_CHANNELS.STAFF_ROLES;
-    const staffRoleIds = botRules.TICKET_CHANNELS.STAFF_ROLE_IDS;
+    // Get server-specific configuration
+    const serverConfig = getServerConfig(message.guild.id);
+    
+    // Use server-specific staff roles if configured, otherwise fall back to global config
+    const staffRoles = serverConfig ? serverConfig.staffRoles : botRules.TICKET_CHANNELS.STAFF_ROLES;
+    const staffRoleIds = serverConfig ? serverConfig.staffRoleIds : botRules.TICKET_CHANNELS.STAFF_ROLE_IDS;
     const staffPermissions = botRules.TICKET_CHANNELS.STAFF_PERMISSIONS;
     
     // Check staff roles by name
@@ -93,7 +106,7 @@ class TicketChannelService {
     const ticketState = await this.ticketSelectionService.get(channelId);
 
     // Step 2: Check if AI should respond
-    if (!this.shouldAIRespond(ticketState, message)) {
+    if (!(await this.shouldAIRespond(ticketState, message))) {
       return;
     }
 
@@ -109,13 +122,19 @@ class TicketChannelService {
       return;
     }
 
-    // Step 5: Validate product selection
+    // Step 5: Validate category selection first
+    if (!ticketState.category) {
+      await this.requestCategorySelection(message);
+      return;
+    }
+
+    // Step 6: Validate product selection (only for categories that require product selection)
     if (!ticketState.product) {
       await this.requestProductSelection(message);
       return;
     }
 
-    // Step 6: Generate AI response
+    // Step 7: Generate AI response
     await this.generateAIResponse(message, ticketState);
   }
 
@@ -123,9 +142,9 @@ class TicketChannelService {
    * Check if AI should respond to this message
    * @param {Object} ticketState - Current ticket state
    * @param {Object} message - Discord message object
-   * @returns {boolean} True if AI should respond
+   * @returns {Promise<boolean>} True if AI should respond
    */
-  shouldAIRespond(ticketState, message) {
+  async shouldAIRespond(ticketState, message) {
     // Don't respond if human help is requested
     if (ticketState.humanHelp) {
       return false;
@@ -134,6 +153,13 @@ class TicketChannelService {
     // Don't respond to staff messages
     if (this.isStaffMessage(message)) {
       console.log(`👥 Ignoring staff message from ${message.author.tag} in ticket ${message.channel.id}`);
+      return false;
+    }
+
+    // Check if this ticket has bot interaction data (new flow) or no data (old flow)
+    const hasBotInteraction = await this.ticketSelectionService.has(message.channel.id);
+    if (!hasBotInteraction) {
+      console.log(`🔇 AI staying silent: No bot interaction data found - this appears to be an old flow ticket handled by staff in ${message.channel.id}`);
       return false;
     }
 
@@ -170,7 +196,7 @@ class TicketChannelService {
     // Mark questions as answered and escalate to human
     await this.ticketSelectionService.updateField(channelId, 'questionsAnswered', true);
     await this.ticketSelectionService.escalateToHuman(channelId);
-    const supportMessage = constants.MESSAGES.getFallbackResponse(constants.ROLES.SUPPORT_TEAM);
+    const supportMessage = getServerFallbackResponse(message.guild.id);
     await message.reply({ content: supportMessage, flags: ['SuppressEmbeds'] });
 
     // Log escalation
@@ -188,18 +214,19 @@ class TicketChannelService {
    */
   async detectHumanHelpRequest(message) {
     try {
-      const systemContent = buildHumanHelpPrompt();
+      const systemContent = buildHumanHelpPrompt(message.guild.id);
       const messages = [
         { role: "system", content: systemContent },
         { role: "user", content: message.content }
       ];
 
       await message.channel.sendTyping();
-      const aiResponse = await this.aiService.generateResponse(messages);
+      const aiResponse = await this.aiService.generateResponse(messages, message.guild.id);
+      
       // Check if AI detected escalation intent
       return aiResponse && 
              aiResponse.isValid && 
-             aiResponse.response.includes(constants.MESSAGES.getFallbackResponse(constants.ROLES.SUPPORT_TEAM));
+             aiResponse.response.includes(getServerFallbackResponse(message.guild.id));
 
     } catch (error) {
       console.error('❌ Error detecting human help request:', error);
@@ -218,13 +245,27 @@ class TicketChannelService {
     
     // Mark for human help
     await this.ticketSelectionService.escalateToHuman(channelId);
-    const supportMessage = constants.MESSAGES.getFallbackResponse(constants.ROLES.SUPPORT_TEAM);
-    await message.reply({ content: supportMessage, flags: ['SuppressEmbeds'] });
+            const supportMessage = getServerFallbackResponse(message.guild.id);
+        await message.reply({ content: supportMessage, flags: ['SuppressEmbeds'] });
 
     // Log escalation
     if (this.loggingService) {
       await this.loggingService.logEscalation(message, 'AI detected escalation intent');
       await this.loggingService.logTicketInteraction(message, supportMessage, ticketState?.product, true);
+    }
+  }
+
+  /**
+   * Request category selection from user
+   * @param {Object} message - Discord message object
+   */
+  async requestCategorySelection(message) {
+    const noCategoryResponse = 'Please select a category to get started with your support request using the buttons above.';
+    await message.reply({ content: noCategoryResponse, flags: ['SuppressEmbeds'] });
+
+    // Log interaction
+    if (this.loggingService) {
+      await this.loggingService.logTicketInteraction(message, noCategoryResponse, null, false);
     }
   }
 
@@ -261,7 +302,7 @@ class TicketChannelService {
 
       // Step 3: Generate response
       await message.channel.sendTyping();
-      const aiResponse = await this.aiService.generateResponse(aiMessages);
+      const aiResponse = await this.aiService.generateResponse(aiMessages, message.guild.id);
 
       // Step 4: Send response
       if (aiResponse && aiResponse.isValid) {
@@ -292,7 +333,7 @@ class TicketChannelService {
    * @param {Object} ticketState - Current ticket state
    */
   async sendFallbackResponse(message, ticketState) {
-    const fallbackResponse = constants.MESSAGES.getFallbackResponse(constants.ROLES.SUPPORT_TEAM);
+          const fallbackResponse = getServerFallbackResponse(message.guild.id);
     await message.reply({ content: fallbackResponse, flags: ['SuppressEmbeds'] });
 
     // Log fallback response
@@ -315,43 +356,6 @@ class TicketChannelService {
       'category_software': 'Software/Setup Issue'
     };
     return categoryNames[category] || 'Support';
-  }
-
-  /**
-   * Debug staff role detection (for troubleshooting)
-   * @param {Object} message - Discord message object
-   */
-  debugStaffRoles(message) {
-    if (!botRules.TICKET_CHANNELS.BEHAVIOR.DEBUG_STAFF_ROLES) {
-      return;
-    }
-
-    const staffRoles = botRules.TICKET_CHANNELS.STAFF_ROLES;
-    const staffRoleIds = botRules.TICKET_CHANNELS.STAFF_ROLE_IDS;
-    const staffPermissions = botRules.TICKET_CHANNELS.STAFF_PERMISSIONS;
-    
-    console.log(`🔍 Debug: User ${message.author.tag} (${message.author.id}) staff detection:`);
-    
-    // Check role names
-    const staffRolesFound = message.member.roles.cache.filter(role => 
-      staffRoles.includes(role.name)
-    );
-    console.log(`  - Staff roles by name: ${staffRolesFound.size > 0 ? staffRolesFound.map(r => r.name).join(', ') : 'None'}`);
-    
-    // Check role IDs
-    const staffRoleIdsFound = message.member.roles.cache.filter(role => 
-      staffRoleIds.includes(role.id)
-    );
-    console.log(`  - Staff roles by ID: ${staffRoleIdsFound.size > 0 ? staffRoleIdsFound.map(r => `${r.name}(${r.id})`).join(', ') : 'None'}`);
-    
-    // Check permissions
-    const staffPermissionsFound = staffPermissions.filter(permission => 
-      message.member.permissions && message.member.permissions.has(permission)
-    );
-    console.log(`  - Staff permissions: ${staffPermissionsFound.length > 0 ? staffPermissionsFound.join(', ') : 'None'}`);
-    
-    // Show all user roles for reference
-    console.log(`  - All user roles: ${Array.from(message.member.roles.cache.values()).map(r => `${r.name}(${r.id})`).join(', ')}`);
   }
 }
 
