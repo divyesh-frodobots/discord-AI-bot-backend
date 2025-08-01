@@ -375,96 +375,6 @@ class ArticleService {
     }
   }
 
-  // Check if a question is related to a specific product using article content
-  async checkProductRelevance(question, selectedProduct) {
-    try {
-      // Get all article content
-      const allContent = await this.getAllArticles();
-      if (!allContent || allContent === "Article content unavailable") {
-        console.log("Article content not available, falling back to keyword check");
-        return this.fallbackProductRelevance(question, selectedProduct);
-      }
-
-      // Create a simple relevance check using the question and product context
-      const questionLower = question.toLowerCase();
-      const productContext = this.getProductContext(selectedProduct);
-      
-      // Check if the question contains words that appear in the article content
-      const questionWords = questionLower.split(/\s+/).filter(word => word.length > 2);
-      const contentLower = allContent.toLowerCase();
-      
-      // Count how many question words appear in the content
-      let relevantWords = 0;
-      for (const word of questionWords) {
-        if (contentLower.includes(word)) {
-          relevantWords++;
-        }
-      }
-      
-      // If more than 50% of question words are found in content, consider it relevant
-      const relevanceThreshold = Math.max(1, questionWords.length * 0.3); // At least 30% of words or 1 word
-      const isRelevant = relevantWords >= relevanceThreshold;
-      
-      return isRelevant;
-    } catch (error) {
-      console.error("Error checking product relevance:", error.message);
-      return this.fallbackProductRelevance(question, selectedProduct);
-    }
-  }
-
-  // Fallback to keyword-based relevance check
-  fallbackProductRelevance(question, selectedProduct) {
-    const contentLower = question.toLowerCase();
-    
-    const productKeywords = {
-      ufb: [
-        'ufb', 'fighting bot', 'ultimate fighting bot', 'robot fighting', 
-        'ufb.gg', 'session', 'booking', 'fight', 'combat', 'battle',
-        'ultimate fighting', 'fighting game', 'robot combat', 'how to fight',
-        'fight process', 'fight steps', 'start fight', 'fight tutorial'
-      ],
-      earthrover: [
-        'earthrover', 'rover', 'drive to earn', 'personal bot', 'earth rover',
-        'driving', 'drive', 'earn', 'fbp', 'frodobots points', 'wallet', 'solana',
-        'personal drive', 'share access', 'ownership', 'transfer', 'start drive',
-        'how to drive', 'drive process', 'drive steps', 'drive tutorial'
-      ],
-      earthrover_school: [
-        'school', 'earthrover school', 'learning', 'education', 'mission',
-        'test drive', 'practice', 'training', 'leaderboard', 'xp', 'experience points',
-        'game pass', 'life points', 'lp', 'time credits', 'tc', 'how to learn',
-        'learning process', 'school tutorial', 'education steps'
-      ],
-      sam: [
-        'sam', 'small autonomous mofo', 'autonomous', 'mofo', 'small bot',
-        'autonomous bot', 'small autonomous', 'sam bot', 'autonomous mofo',
-        'how to use sam', 'sam tutorial', 'sam guide', 'sam features',
-        'sam capabilities', 'sam functions', 'sam operations'
-      ],
-      robotsfun: [
-        'robots fun', 'robot fun', 'fun robots', 'robot activities',
-        'fun activities', 'robot games', 'robot entertainment', 'fun bot',
-        'entertainment robots', 'robot play', 'fun robot activities',
-        'robot fun activities', 'entertainment bot', 'fun robot games'
-      ]
-    };
-    
-    const keywords = productKeywords[selectedProduct] || [];
-    return keywords.some(keyword => contentLower.includes(keyword));
-  }
-
-  // Get product context for better relevance checking
-  getProductContext(selectedProduct) {
-    const contexts = {
-      ufb: "Ultimate Fighting Bots, robot fighting, combat, battles, sessions, bookings",
-      earthrover: "Earthrover, drive to earn, personal bot, driving, earning points, wallet",
-      earthrover_school: "Earthrover School, learning, education, missions, training, practice",
-      sam: "SAM, Small Autonomous Mofo, autonomous bot, small autonomous robot, autonomous operations",
-      robotsfun: "Robots Fun, robot entertainment, fun robot activities, robot games, entertainment robots"
-    };
-    return contexts[selectedProduct] || "";
-  }
-
   // Get cache statistics
   getCacheStats() {
     const now = Date.now();
@@ -502,25 +412,6 @@ class ArticleService {
     }
     const combinedContent = allArticles.join("\n\n---\n\n");
     return this.truncateContent(combinedContent);
-  }
-
-  findRelevantArticles(articles, question, maxResults = 3) {
-    const questionLower = question.toLowerCase();
-    // Score each article by number of question words present
-    const questionWords = questionLower.split(/\s+/).filter(w => w.length > 2);
-    const scored = articles.map(article => {
-      const contentLower = article.content.toLowerCase();
-      let score = 0;
-      for (const word of questionWords) {
-        if (contentLower.includes(word)) score++;
-      }
-      return { ...article, score };
-    });
-    // Sort by score descending and return top results
-    return scored
-      .filter(a => a.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, maxResults);
   }
 
   // Filter Getting Started content to only include generic or selected-product info
@@ -562,17 +453,7 @@ class ArticleService {
     return filtered.join('\n\n');
   }
 
-  // Fetch and combine product-specific and Getting Started articles with filtering
-  async getCombinedProductAndGettingStartedArticles(productKey) {
-    // Fetch product-specific articles
-    const productContent = await this.getArticlesByCategory(productKey);
-    // Fetch Getting Started articles and filter
-    let gettingStartedContent = await this.getArticlesByCategory('getting_started');
-    gettingStartedContent = this.filterGettingStartedContent(gettingStartedContent, productKey);
-    // Combine both, with Getting Started first
-    const combinedContent = `# Getting Started\n\n${gettingStartedContent}\n\n---\n\n# ${productKey.charAt(0).toUpperCase() + productKey.slice(1)}\n\n${productContent}`;
-    return this.truncateContent(combinedContent);
-  }
+
 }
 
 /**
@@ -598,6 +479,12 @@ export function buildSystemPrompt(articleContent, productName) {
   return `
 You are a friendly and helpful support assistant for FrodoBots, operating directly within Discord. You have access to information about **${productName}** below. Use this information to help users in a natural, conversational way.
 
+CRITICAL PRODUCT CONSTRAINT:
+- You are ONLY authorized to answer questions about ${productName}
+- If a user asks about other FrodoBots products (UFB, Earthrover School, SAM, Robots Fun, etc.), politely redirect them to ask about ${productName} instead
+- Only provide information that is specifically about ${productName} or general FrodoBots information that applies to ${productName}
+- If someone asks about a different product, say something like "I'm here to help with ${productName} questions. For questions about other products, please select the correct product using the buttons above."
+
 ${contentString}
 
 DISCORD CONTEXT:
@@ -608,11 +495,12 @@ DISCORD CONTEXT:
 
 IMPORTANT GUIDELINES:
 - Be friendly and conversational, like a helpful friend
+- ONLY answer questions about ${productName} - redirect other product questions
 - If you know the answer from the information above, give it directly and confidently
-- If you don't have enough information, be honest but helpful - suggest what you do know and offer to connect them with human support
+- If you don't have enough information about ${productName}, be honest but helpful - suggest what you do know and offer to connect them with human support
 - When referring users to additional help, mention that they can type "talk to team" or ask for human support right here in Discord
 - Avoid robotic phrases like "The information provided does not specify..." or "Based on the available data..."
-- Instead, say things like "I don't have specific info about that, but here's what I do know..." or "That's a great question! Let me share what I can help with..."
+- Instead, say things like "I don't have specific info about that for ${productName}, but here's what I do know..." or "That's a great question about ${productName}! Let me share what I can help with..."
 - Keep responses concise but warm and helpful
 - If someone needs more detailed help, mention they can get human assistance right here in Discord by asking to "talk to team"
 - Always be encouraging and supportive - we want users to feel helped, not frustrated

@@ -68,11 +68,11 @@ client.once("ready", () => {
   // Set bot status
   client.user.setStatus(constants.BOT_CONFIG.STATUS);
   // Initialize article service
-  articleService.initialize().then(() => {
-    console.log(constants.MESSAGES.ARTICLES_LOADED);
-  }).catch(() => {
-    console.log(constants.MESSAGES.ARTICLES_FAILED);
-  });
+  // articleService.initialize().then(() => {
+  //   console.log(constants.MESSAGES.ARTICLES_LOADED);
+  // }).catch(() => {
+  //   console.log(constants.MESSAGES.ARTICLES_FAILED);
+  // });
 });
 
 // Register slash commands when bot is ready
