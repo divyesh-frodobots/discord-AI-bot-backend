@@ -349,6 +349,75 @@ ADDITIONAL CONTEXT:
 - Be friendly, conversational, and encouraging
 - Keep responses concise but informative`;
   }
+
+  /**
+   * Get articles by category - fetches specific category content
+   * @param {string} categoryKey - The category key (earthrover, ufb, sam, etc.)
+   * @returns {string} Category-specific content
+   */
+  async getArticlesByCategory(categoryKey) {
+    const categoryUrl = this.CATEGORY_URLS[categoryKey];
+    if (!categoryUrl) {
+      console.warn(`[PublicArticleService] Unknown category: ${categoryKey}`);
+      return "Category not found. Available categories: " + Object.keys(this.CATEGORY_URLS).join(", ");
+    }
+
+    try {
+      // Only extract direct article links from the collection page
+      this.discoveredUrls.clear();
+      this.visitedUrls.clear();
+      const articleLinks = await this.extractLinksFromPage(categoryUrl);
+
+      // Fetch and combine content from only those direct article links
+      const allArticles = [];
+      for (const url of articleLinks) {
+        const content = await this.getCachedArticle(url);
+        if (content) allArticles.push(content);
+      }
+      
+      const combinedContent = allArticles.join("\n\n---\n\n");
+      const truncatedContent = this.truncateContent(combinedContent);
+      
+      console.log(`[PublicArticleService] Fetched ${allArticles.length} articles for category: ${categoryKey}`);
+      return truncatedContent;
+    } catch (error) {
+      console.error(`[PublicArticleService] Error fetching category ${categoryKey}:`, error);
+      return "Error loading category content. Please try again.";
+    }
+  }
+
+  /**
+   * Get category-specific context to focus the AI
+   * @param {string} category - The category key
+   * @returns {string} Context instructions for the category
+   */
+  getCategoryContext(category) {
+    const contexts = {
+      earthrover: `FOCUS: EarthRover Drive-to-Earn Robots
+Key topics: Robot activation, driving mechanics, wallet connection, FrodoBots Points (FBP), troubleshooting, earning strategies.`,
+
+      ufb: `FOCUS: Ultimate Fighting Bots (UFB)
+Key topics: Robot combat, battle mechanics, tournaments, upgrades, fighting strategies, stats management.`,
+
+      sam: `FOCUS: Small Autonomous Mofo (SAM) Robots  
+Key topics: SAM features, autonomous modes, configuration, customization, integration with other products.`,
+
+      earthrover_school: `FOCUS: EarthRover School Learning Platform
+Key topics: Training missions, courses, practice sessions, leaderboards, XP system, skill development.`,
+
+      getting_started: `FOCUS: Getting Started with FrodoBots
+Key topics: Account setup, first-time guidance, platform overview, choosing products, payment help.`,
+
+      robotsfun: `FOCUS: Robots Fun Activities
+Key topics: Fun robot activities, entertainment features, casual gameplay.`,
+
+      et_fugi: `FOCUS: ET Fugi AI Competition
+Key topics: AI competition details, participation, rules, strategies.`
+    };
+
+    return contexts[category] || `FOCUS: General FrodoBots Support
+Key topics: General platform questions, product information, basic support.`;
+  }
 }
 
 export default PublicArticleService; 
