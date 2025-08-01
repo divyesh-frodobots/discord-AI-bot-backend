@@ -2,7 +2,7 @@ const serverConfigs = {
   "943055769157402624": {
     guildId: "943055769157402624", // Correct guild ID from logs
     name: "FrodoBots", 
-    ticketChannelId: "1400330024011300894", // Parent channel for tickets
+    ticketChannelId: "1348465847697670145", // Parent channel for tickets
     supportTeamRoleId: "1183965714508423329",
     staffRoleIds: [
       "1183965714508423329", // Support team role ID

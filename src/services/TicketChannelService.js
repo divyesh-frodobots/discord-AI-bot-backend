@@ -104,6 +104,7 @@ class TicketChannelService {
     
     // Step 1: Get current ticket state
     const ticketState = await this.ticketSelectionService.get(channelId);
+    console.log(`📋 Current ticket state for ${channelId}:`, JSON.stringify(ticketState, null, 2));
 
     // Step 2: Check if AI should respond
     if (!(await this.shouldAIRespond(ticketState, message))) {
@@ -290,16 +291,15 @@ class TicketChannelService {
    */
   async generateAIResponse(message, ticketState) {
     try {
-      // Step 1: Get product-specific articles
-      const combinedContent = await this.articleService.getCombinedProductAndGettingStartedArticles(ticketState.product);
-      const systemContent = buildSystemPrompt(combinedContent, ticketState.product);
-
-      // Step 2: Build messages for AI
-      const aiMessages = [
-        { role: "system", content: systemContent },
-        { role: "user", content: message.content }
-      ];
-
+      console.log(`🤖 Generating AI response for product: ${ticketState.product}`);
+      
+      // Step 1: Add user message to conversation
+      const channelId = message.channel.id;
+      this.conversationService.addUserMessage(channelId, message.content, false);
+      
+      // Step 2: Get conversation history (includes product-specific system message)
+      const aiMessages = this.conversationService.getConversationHistory(channelId, false);
+      
       // Step 3: Generate response
       await message.channel.sendTyping();
       const aiResponse = await this.aiService.generateResponse(aiMessages, message.guild.id);
@@ -307,6 +307,9 @@ class TicketChannelService {
       // Step 4: Send response
       if (aiResponse && aiResponse.isValid) {
         await message.reply({ content: aiResponse.response, flags: ['SuppressEmbeds'] });
+        
+        // Add assistant response to conversation history
+        this.conversationService.addAssistantMessage(channelId, aiResponse.response, false);
         
         // Log successful interaction
         if (this.loggingService) {

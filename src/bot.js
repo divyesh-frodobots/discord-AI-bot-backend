@@ -77,12 +77,12 @@ client.once("ready", async () => {
     type: constants.BOT_CONFIG.ACTIVITY_TYPE,
   });
   client.user.setStatus(constants.BOT_CONFIG.STATUS);
-
-  // Initialize article services
-  await initializeServices();
-
-  // Set up periodic maintenance
-  setupPeriodicMaintenance();
+  // Initialize article service
+  // articleService.initialize().then(() => {
+  //   console.log(constants.MESSAGES.ARTICLES_LOADED);
+  // }).catch(() => {
+  //   console.log(constants.MESSAGES.ARTICLES_FAILED);
+  // });
 });
 
 /**
@@ -92,11 +92,11 @@ async function initializeServices() {
   try {
     // Initialize article service (used by both ticket and public bots)
     console.log("✅ Article service ready (shared by ticket and public bots)");
-    
+
     // Restore public channel data from Redis
     await publicChannelService.restoreFromRedis(client, articleService);
     console.log("✅ Public channel data restored from Redis");
-    
+
   } catch (error) {
     console.error("❌ Error initializing services:", error);
   }
@@ -185,7 +185,7 @@ async function handlePublicChannelFlow(message) {
   try {
     // Check if bot should respond (command/mention triggers only)
     const responseCheck = await publicChannelService.shouldRespond(message, client.user.id);
-    
+
     if (!responseCheck.shouldRespond) {
       // Don't log non-triggers to reduce noise
       return;
@@ -201,7 +201,7 @@ async function handlePublicChannelFlow(message) {
 
     // Handle public channel messages
     await publicChannelService.handlePublicChannelMessage(message, articleService, publicConversationService);
-    
+
   } catch (error) {
     console.error("❌ Error in public channel flow:", error);
     await message.reply("❌ Sorry, I encountered an error. Please try again or type `human help` for support.");
@@ -233,7 +233,7 @@ client.on('interactionCreate', async interaction => {
  */
 async function handleSlashCommand(interaction) {
   const command = commands.get(interaction.commandName);
-  
+
   if (!command) {
     console.error(`❌ Unknown command: ${interaction.commandName}`);
     return;
@@ -251,7 +251,7 @@ async function handleButtonInteraction(interaction) {
     await publicChannelService.handleProductSelection(interaction, articleService);
     return;
   }
-  
+
   // Handle ticket system buttons
   if (ticketChannelService.isTicketChannel(interaction.channel)) {
     await ticketButtonHandler.handleButtonInteraction(interaction);
@@ -265,7 +265,7 @@ async function handleButtonInteraction(interaction) {
  */
 async function handleInteractionError(interaction, error) {
   const errorMessage = 'There was an error while executing this command!';
-  
+
   try {
     if (interaction.replied || interaction.deferred) {
       await interaction.followUp({ content: errorMessage, ephemeral: true });
