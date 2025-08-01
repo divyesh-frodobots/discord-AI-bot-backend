@@ -1,28 +1,4 @@
 const serverConfigs = {
-  "943055769157402624": {
-    guildId: "943055769157402624", // Correct guild ID from logs
-    name: "FrodoBots", 
-    ticketChannelId: "1400330024011300894", // Parent channel for tickets
-    supportTeamRoleId: "1183965714508423329",
-    staffRoleIds: [
-      "1183965714508423329", // Support team role ID
-    ],
-    staffRoles: [
-        "📞FrodoBots - Support team",
-    ],
-    staffPermissions: [
-      "ManageMessages",
-      "ManageChannels",
-      "ManageRoles",
-      "ManageGuild",
-    ],
-    loggingChannels: {
-      ticketLogs: "1183956359008485496",
-      adminLogs: "admin-logs",
-      publicLogs: "logging-public"
-    },
-    escalationRole: "@SupportTeam"
-  },
   "1205162105205166151": {
     guildId: "1205162105205166151", // Correct guild ID from logs
     name: "frodobots_owner", 
