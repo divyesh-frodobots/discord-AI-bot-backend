@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { Client, GatewayIntentBits, ChannelType } from "discord.js";
-import { getServerFallbackResponse } from './config/serverConfigs.js';
+import { getServerFallbackResponse, getServerConfig } from './config/serverConfigs.js';
 
 // Import services
 import ArticleService from "./services/ArticleService.js";
@@ -173,14 +173,20 @@ function isPublicChannelMessage(message) {
   }
 
   const channelInfo = channelService.getChannelInfo(message);
+  
+  // Get server-specific configuration
+  const serverConfig = getServerConfig(message.guild.id);
+  
+  // Use server-specific public channels if configured, otherwise fall back to global config
+  const approvedChannels = serverConfig?.publicChannels || botRules.PUBLIC_CHANNELS.APPROVED_CHANNELS;
 
   // Direct public channel message
-  const isPublicChannel = botRules.PUBLIC_CHANNELS.APPROVED_CHANNELS.includes(channelInfo.channelName);
+  const isPublicChannel = approvedChannels.includes(channelInfo.channelName);
 
   // Message in thread of public channel
   const isInPublicThread = message.channel.isThread() &&
     message.channel.parent &&
-    botRules.PUBLIC_CHANNELS.APPROVED_CHANNELS.includes(message.channel.parent.name);
+    approvedChannels.includes(message.channel.parent.name);
 
   return isPublicChannel || isInPublicThread;
 }

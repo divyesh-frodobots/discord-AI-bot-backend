@@ -9,7 +9,8 @@ export default {
 
   // Public Channels Configuration
   PUBLIC_CHANNELS: {
-    // Approved channels where bot can respond
+    // Global fallback channels (used when server doesn't have specific configuration)
+    // For server-specific channels, configure in serverConfigs.js
     APPROVED_CHANNELS: [
       "test-bot-ai", // #test-bot-ai
       "test",

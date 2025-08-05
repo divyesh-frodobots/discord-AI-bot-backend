@@ -2,6 +2,7 @@ import botRules from '../config/botRules.js';
 import { buildHumanHelpPrompt } from './ArticleService.js';
 import constants from '../config/constants.js';
 import redis from './redisClient.js';
+import { getServerConfig } from '../config/serverConfigs.js';
 
 /**
  * Public Channel Service - Thread-Based Conversation Management
@@ -87,7 +88,7 @@ class PublicChannelService {
     const sessionKey = `${userId}:${channelId}`;
 
     // Basic validation
-    if (!this.isApprovedChannel(channelName)) {
+    if (!this.isApprovedChannel(channelName, message.guild.id)) {
       return { shouldRespond: false, reason: 'channel_not_approved' };
     }
 
@@ -267,8 +268,14 @@ class PublicChannelService {
   /**
    * Check if channel is approved for bot operation
    */
-  isApprovedChannel(channelName) {
-    return botRules.PUBLIC_CHANNELS.APPROVED_CHANNELS.includes(channelName);
+  isApprovedChannel(channelName, guildId) {
+    // Get server-specific configuration
+    const serverConfig = getServerConfig(guildId);
+    
+    // Use server-specific public channels if configured, otherwise fall back to global config
+    const approvedChannels = serverConfig?.publicChannels || botRules.PUBLIC_CHANNELS.APPROVED_CHANNELS;
+    
+    return approvedChannels.includes(channelName);
   }
 
   /**
@@ -437,7 +444,7 @@ class PublicChannelService {
     // Scan for existing threads
     for (const [channelId, channel] of client.channels.cache) {
       if (channel.isThread() && channel.parent && !channel.archived) {
-        const isApprovedParent = this.isApprovedChannel(channel.parent.name);
+        const isApprovedParent = this.isApprovedChannel(channel.parent.name, channel.guild.id);
         if (!isApprovedParent) continue;
         
         try {
