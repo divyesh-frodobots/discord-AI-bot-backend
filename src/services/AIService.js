@@ -7,7 +7,7 @@ class AIService {
     if (!process.env.OPENAI_API_KEY) {
       throw new Error("OPENAI_API_KEY environment variable is not set");
     }
-    
+
     this.openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY
     });
@@ -15,10 +15,19 @@ class AIService {
 
   async generateResponse(messages, guildId = null) {
     try {
+      // Add strict instruction to only use provided content
+      const strictMessages = [
+        {
+          role: "system",
+          content: "You are a helpful Discord bot for FrodoBots. You can engage in basic conversation and greetings, but for technical questions about FrodoBots products, you must ONLY use information from the provided conversation context. For technical questions not covered in the provided content, say 'I don't have specific information about that. You can ask to talk to team for more detailed help.'"
+        },
+        ...messages
+      ];
+
       const completion = await this.openai.chat.completions.create({
         model: "gpt-4.1-nano",
-        messages: messages,
-        temperature: 0.8, // Increased for more natural responses
+        messages: strictMessages,
+        temperature: 0.7, // Slightly reduced for more focused responses
         max_tokens: 500, // Reduced from 1000 to leave more room for system prompt
         presence_penalty: 0.1, // Slightly reduce repetition
         frequency_penalty: 0.1 // Slightly reduce repetitive phrases
@@ -58,37 +67,37 @@ class AIService {
 
     // Replace robotic phrases with more natural ones
     const roboticPhrases = [
-      { 
-        pattern: /the information provided does not specify/i, 
-        replacement: "I don't have specific info about that" 
+      {
+        pattern: /the information provided does not specify/i,
+        replacement: "I don't have specific info about that"
       },
-      { 
-        pattern: /based on the available data/i, 
-        replacement: "From what I know" 
+      {
+        pattern: /based on the available data/i,
+        replacement: "From what I know"
       },
-      { 
-        pattern: /the information provided indicates/i, 
-        replacement: "Here's what I can tell you" 
+      {
+        pattern: /the information provided indicates/i,
+        replacement: "Here's what I can tell you"
       },
-      { 
-        pattern: /according to the information/i, 
-        replacement: "Based on what I know" 
+      {
+        pattern: /according to the information/i,
+        replacement: "Based on what I know"
       },
-      { 
-        pattern: /the available information shows/i, 
-        replacement: "What I can share with you is" 
+      {
+        pattern: /the available information shows/i,
+        replacement: "What I can share with you is"
       },
-      { 
-        pattern: /it is important to note that/i, 
-        replacement: "Keep in mind that" 
+      {
+        pattern: /it is important to note that/i,
+        replacement: "Keep in mind that"
       },
-      { 
-        pattern: /it should be mentioned that/i, 
-        replacement: "Also worth noting" 
+      {
+        pattern: /it should be mentioned that/i,
+        replacement: "Also worth noting"
       },
-      { 
-        pattern: /the system indicates/i, 
-        replacement: "I can see that" 
+      {
+        pattern: /the system indicates/i,
+        replacement: "I can see that"
       }
     ];
 
@@ -107,12 +116,12 @@ class AIService {
   calculateConfidence(reply, messages) {
     // Simple confidence calculation based on response characteristics
     let confidence = 0.8; // Base confidence
-    
+
     // Reduce confidence for very short responses
     if (reply.length < 20) {
       confidence -= 0.2;
     }
-    
+
     // Reduce confidence for responses that seem uncertain
     const uncertaintyWords = ['maybe', 'perhaps', 'i think', 'possibly', 'not sure', 'uncertain'];
     const lowerReply = reply.toLowerCase();
@@ -121,7 +130,7 @@ class AIService {
         confidence -= 0.1;
       }
     });
-    
+
     // Reduce confidence for robotic phrases
     const roboticPhrases = [
       'the information provided does not specify',
@@ -133,13 +142,13 @@ class AIService {
       'it should be mentioned that',
       'the system indicates'
     ];
-    
+
     roboticPhrases.forEach(phrase => {
       if (lowerReply.includes(phrase)) {
         confidence -= 0.2; // Significant reduction for robotic language
       }
     });
-    
+
     // Increase confidence for responses that reference FrodoBots content
     const frodoBotsWords = ['frodobots', 'robot', 'earthrover', 'ufb', 'help', 'support'];
     frodoBotsWords.forEach(word => {
@@ -147,7 +156,7 @@ class AIService {
         confidence += 0.05;
       }
     });
-    
+
     // Increase confidence for friendly, conversational responses
     const friendlyPhrases = [
       'here\'s what i can tell you',
@@ -157,16 +166,16 @@ class AIService {
       'let me share',
       'happy to help'
     ];
-    
+
     friendlyPhrases.forEach(phrase => {
       if (lowerReply.includes(phrase)) {
         confidence += 0.1; // Boost for friendly language
       }
     });
-    
+
     // Ensure confidence is between 0 and 1
     return Math.max(0, Math.min(1, confidence));
   }
 }
 
-export default AIService; 
+export default AIService;

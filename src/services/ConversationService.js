@@ -26,12 +26,18 @@ class ConversationService {
     if (!this.systemMessage) {
       // Get cached articles from ArticleService
       const articles = await this.articleService.getAllArticles();
-      
-      this.systemMessage = { 
-        role: "system", 
+
+      this.systemMessage = {
+        role: "system",
         content: `You are a helpful assistant for FrodoBots, operating as a Discord bot within the FrodoBots Discord server. You have access to the following information from official help articles:
 
 ${articles}
+
+CONVERSATION GUIDELINES:
+- You can engage in basic conversation, greetings, and general chat
+- For technical questions about FrodoBots products, you must ONLY use information from the articles above
+- If technical information is not in the provided articles, say "I don't have specific information about that. You can ask to talk to team for more detailed help."
+- Be friendly and conversational while staying focused on FrodoBots support
 
 DISCORD CONTEXT:
 - You are running as a Discord bot, already within the FrodoBots Discord server
@@ -39,25 +45,19 @@ DISCORD CONTEXT:
 - If users need human support, they can ask to "talk to team" right here in Discord
 
 CRITICAL INSTRUCTIONS:
-1. ONLY reference previous conversation context when the current question is clearly related to what was discussed before
-2. If a user asks a completely new, unrelated question, treat it as a fresh conversation and focus solely on answering that question
-3. If the user asks follow-up questions or uses phrases like "what about that", "how about the other one", "and what about...", then reference the previous conversation
-4. Use phrases like "As I mentioned earlier" or "Based on our previous discussion" ONLY when the current question is genuinely related to previous context
-5. If you detect that a question is unrelated to previous conversation (e.g., switching from asking about UFB to asking about EarthRover), respond to the new question without referencing previous context
-6. Only answer questions related to FrodoBots services based on the provided article content
-7. Be conversational but don't force connections where they don't naturally exist
-8. Always base your responses on the official help article content provided above
-9. DO NOT mention website chat widgets or external contact methods - you're already in Discord with them
-10. DO NOT add generic closing statements like "Feel free to ask if you have any questions" or "I'm here to help" - end responses naturally
-11. Focus on providing the information directly without unnecessary closing phrases
-12. NEVER fabricate or guess information - stick strictly to the knowledge base content
+1. ALWAYS reference previous conversation context when responding
+2. If a user asks follow-up questions, refer to what was discussed before
+3. Use phrases like "As I mentioned earlier", "Based on our previous discussion", "To continue from where we left off"
+4. If the user asks "What about X?" or "How about Y?", connect it to the previous conversation
+5. Only answer questions related to FrodoBots services based on the provided article content and the conversation history
+6. Be conversational and maintain context throughout the conversation
+7. Always base your responses on the official help article content provided above and the conversation history
+8. DO NOT mention website chat widgets or external contact methods - you're already in Discord with them
+9. DO NOT add generic closing statements like "Feel free to ask if you have any questions" or "I'm here to help" - end responses naturally
+10. Focus on providing the information directly without unnecessary closing phrases
+11. For technical questions not covered in the articles, say "I don't have specific information about that. You can ask to talk to team for more detailed help."
 
-CONTEXT RELEVANCE GUIDE:
-- Related: Follow-up questions about the same topic, clarifications, or deeper questions about what was just discussed
-- Unrelated: New topics, different products, completely different questions that don't build on previous discussion
-- When in doubt, prioritize answering the current question directly rather than forcing previous context
-
-When users need additional support, remind them they can ask to "talk to team" right here in Discord.`
+Remember: Always build on previous context and make connections to earlier parts of the conversation. When users need additional support, remind them they can ask to "talk to team" right here in Discord.`
       };
       console.log("System message initialized and cached");
     }
@@ -68,7 +68,7 @@ When users need additional support, remind them they can ask to "talk to team" r
     // If articles is provided (for product-specific conversations), use it
     // Otherwise, use the cached system message for general conversations
     const key = isUserBased ? `user_${conversationId}` : conversationId;
-    
+
     if (!this.userConversations[key]) {
       if (articles) {
         // For product-specific conversations (like tickets), use provided articles
@@ -99,9 +99,9 @@ When users need additional support, remind them they can ask to "talk to team" r
     const totalContent = this.userConversations[conversationKey]
       .map(msg => msg.content)
       .join(' ');
-    
+
     const estimatedTokens = this.estimateTokens(totalContent);
-    
+
     if (estimatedTokens > this.MAX_CONVERSATION_TOKENS) {
       const systemMessage = this.userConversations[conversationKey][0];
       // Keep more messages for better context (last 10 instead of 6)
@@ -114,18 +114,18 @@ When users need additional support, remind them they can ask to "talk to team" r
   getConversationHistory(conversationId, isUserBased = true) {
     const key = isUserBased ? `user_${conversationId}` : conversationId;
     const history = this.userConversations[key] || [];
-    
+
     // Log conversation context for debugging
     if (history.length > 1) {
       const userMessages = history.filter(msg => msg.role === 'user');
       const assistantMessages = history.filter(msg => msg.role === 'assistant');
       console.log(`Conversation context: ${userMessages.length} user messages, ${assistantMessages.length} assistant messages`);
-      
+
       if (userMessages.length > 0) {
         console.log(`Last user message: "${userMessages[userMessages.length - 1].content.substring(0, 100)}..."`);
       }
     }
-    
+
     return history;
   }
 
@@ -145,19 +145,19 @@ When users need additional support, remind them they can ask to "talk to team" r
   getConversationContext(userId) {
     const key = `user_${userId}`;
     const conversation = this.userConversations[key] || [];
-    
+
     console.log(`🔍 Checking context for user ${userId} (key: ${key})`);
     console.log(`   Conversation exists: ${!!this.userConversations[key]}`);
     console.log(`   Conversation length: ${conversation.length}`);
     console.log(`   Available conversations: ${Object.keys(this.userConversations).join(', ')}`);
-    
+
     if (conversation.length <= 1) {
       return { hasContext: false, message: "No previous conversation" };
     }
-    
+
     const userMessages = conversation.filter(msg => msg.role === 'user');
     const assistantMessages = conversation.filter(msg => msg.role === 'assistant');
-    
+
     return {
       hasContext: true,
       totalMessages: conversation.length - 1, // Exclude system message
@@ -173,10 +173,10 @@ When users need additional support, remind them they can ask to "talk to team" r
   getUserConversationSummary(userId) {
     const conversation = this.getUserConversation(userId);
     if (conversation.length <= 1) return null; // Only system message
-    
+
     const userMessages = conversation.filter(msg => msg.role === 'user');
     const assistantMessages = conversation.filter(msg => msg.role === 'assistant');
-    
+
     return {
       totalMessages: conversation.length - 1, // Exclude system message
       userMessages: userMessages.length,
@@ -203,7 +203,7 @@ When users need additional support, remind them they can ask to "talk to team" r
     const history = this.userConversations[key] || [];
     const totalContent = history.map(msg => msg.content).join(' ');
     const estimatedTokens = this.estimateTokens(totalContent);
-    
+
     return {
       messageCount: history.length,
       estimatedTokens,
@@ -228,4 +228,4 @@ When users need additional support, remind them they can ask to "talk to team" r
   }
 }
 
-export default ConversationService; 
+export default ConversationService;

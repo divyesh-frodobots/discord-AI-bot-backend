@@ -104,6 +104,7 @@ class TicketChannelService {
     
     // Step 1: Get current ticket state
     const ticketState = await this.ticketSelectionService.get(channelId);
+    console.log(`📋 Current ticket state for ${channelId}:`, JSON.stringify(ticketState, null, 2));
 
     // Step 2: Check if AI should respond
     if (!(await this.shouldAIRespond(ticketState, message))) {
@@ -139,6 +140,29 @@ class TicketChannelService {
   }
 
   /**
+   * Check if support team has messaged in this thread
+   * @param {Object} channel - Discord channel object
+   * @returns {Promise<boolean>} True if support team has messaged
+   */
+  async hasSupportTeamMessaged(channel) {
+    try {
+      // Fetch recent messages to check for support team activity
+      const messages = await channel.messages.fetch({ limit: 100 });
+      
+      for (const [id, message] of messages) {
+        if (!message.author.bot && this.isStaffMessage(message)) {
+          console.log(`👥 Support team member ${message.author.tag} has messaged in ${channel.id} - bot will stop responding`);
+          return true;
+        }
+      }
+      return false;
+    } catch (error) {
+      console.error('❌ Error checking for support team messages:', error);
+      return false;
+    }
+  }
+
+  /**
    * Check if AI should respond to this message
    * @param {Object} ticketState - Current ticket state
    * @param {Object} message - Discord message object
@@ -153,6 +177,12 @@ class TicketChannelService {
     // Don't respond to staff messages
     if (this.isStaffMessage(message)) {
       console.log(`👥 Ignoring staff message from ${message.author.tag} in ticket ${message.channel.id}`);
+      return false;
+    }
+
+    // Check if support team has messaged in this thread - if so, bot should stop responding
+    if (await this.hasSupportTeamMessaged(message.channel)) {
+      console.log(`🔇 AI staying silent: Support team has messaged in ${message.channel.id} - human support is active`);
       return false;
     }
 
@@ -290,16 +320,15 @@ class TicketChannelService {
    */
   async generateAIResponse(message, ticketState) {
     try {
-      // Step 1: Get product-specific articles
-      const combinedContent = await this.articleService.getCombinedProductAndGettingStartedArticles(ticketState.product);
-      const systemContent = buildSystemPrompt(combinedContent, ticketState.product);
-
-      // Step 2: Build messages for AI
-      const aiMessages = [
-        { role: "system", content: systemContent },
-        { role: "user", content: message.content }
-      ];
-
+      console.log(`🤖 Generating AI response for product: ${ticketState.product}`);
+      
+      // Step 1: Add user message to conversation
+      const channelId = message.channel.id;
+      this.conversationService.addUserMessage(channelId, message.content, false);
+      
+      // Step 2: Get conversation history (includes product-specific system message)
+      const aiMessages = this.conversationService.getConversationHistory(channelId, false);
+      
       // Step 3: Generate response
       await message.channel.sendTyping();
       const aiResponse = await this.aiService.generateResponse(aiMessages, message.guild.id);
@@ -307,6 +336,9 @@ class TicketChannelService {
       // Step 4: Send response
       if (aiResponse && aiResponse.isValid) {
         await message.reply({ content: aiResponse.response, flags: ['SuppressEmbeds'] });
+        
+        // Add assistant response to conversation history
+        this.conversationService.addAssistantMessage(channelId, aiResponse.response, false);
         
         // Log successful interaction
         if (this.loggingService) {
