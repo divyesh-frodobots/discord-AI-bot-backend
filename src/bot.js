@@ -12,6 +12,7 @@ import LoggingService from './services/LoggingService.js';
 import PublicChannelService from './services/PublicChannelService.js';
 import ChannelService from './services/ChannelService.js';
 import PublicArticleService from "./services/PublicArticleService.js";
+import PublicContentManager from "./services/PublicContentManager.js";
 
 // Import handlers
 import TicketButtonHandler from './services/TicketButtonHandler.js';
@@ -42,6 +43,7 @@ const conversationService = new ConversationService(articleService);
 const publicArticleService = new PublicArticleService();
 const publicChannelService = new PublicChannelService();
 const publicConversationService = new ConversationService(publicArticleService);
+const publicContentManager = new PublicContentManager();
 
 // Create Discord client
 const client = new Client({
@@ -96,7 +98,11 @@ async function initializeServices() {
   try {
     // Initialize public articles
     await publicArticleService.initialize();
+    
+    // Log initialization status
+    const status = publicArticleService.getInitializationStatus();
     console.log("✅ Public articles loaded successfully");
+    console.log(`📊 PublicArticleService Status:`, status);
 
     // Rebuild thread tracking after restart
     await publicChannelService.rebuildThreadTracking(client);
@@ -323,25 +329,79 @@ async function generateAIResponse(context) {
   // Generate thread-specific conversation key
   const conversationKey = getConversationKey(context.message);
 
-  // Initialize conversation
-  await publicConversationService.initializeConversation(conversationKey, null, false);
-  publicConversationService.addUserMessage(conversationKey, context.message.content, false);
+  try {
+    // Check if PublicArticleService is properly initialized
+    if (!publicArticleService.isInitialized()) {
+      console.log("[PublicArticleService] Service not fully initialized, using fallback");
+      // Use fallback system prompt
+      await publicConversationService.initializeConversation(conversationKey, null, false);
+      publicConversationService.addUserMessage(conversationKey, context.message.content, false);
+      
+      const conversationHistory = publicConversationService.getConversationHistory(conversationKey, false);
+      const aiResponse = await aiService.generateResponse(conversationHistory);
+      
+      if (context.typingInterval) {
+        clearInterval(context.typingInterval);
+        context.typingInterval = null;
+      }
 
-  // Get conversation history and generate response
-  const conversationHistory = publicConversationService.getConversationHistory(conversationKey, false);
-  const aiResponse = await aiService.generateResponse(conversationHistory);
+      if (isLowConfidenceResponse(aiResponse)) {
+        await handleLowConfidenceResponse(context, aiResponse);
+      } else {
+        await handleNormalResponse(context, aiResponse);
+      }
+      return;
+    }
 
-  // Stop typing
-  if (context.typingInterval) {
-    clearInterval(context.typingInterval);
-    context.typingInterval = null;
-  }
+    // Get relevant content for the user's query
+    const relevantContent = await publicArticleService.getRelevantContent(context.message.content);
+    
+    // Create enhanced system prompt with query-specific content
+    const enhancedSystemPrompt = publicContentManager.createEnhancedSystemPrompt(
+      context.message.content, 
+      relevantContent
+    );
 
-  // Handle response based on confidence
-  if (isLowConfidenceResponse(aiResponse)) {
-    await handleLowConfidenceResponse(context, aiResponse);
-  } else {
-    await handleNormalResponse(context, aiResponse);
+    // Initialize conversation with enhanced system prompt
+    await publicConversationService.initializeConversation(conversationKey, enhancedSystemPrompt, false);
+    publicConversationService.addUserMessage(conversationKey, context.message.content, false);
+
+    // Get conversation history and generate response
+    const conversationHistory = publicConversationService.getConversationHistory(conversationKey, false);
+    const aiResponse = await aiService.generateResponse(conversationHistory);
+
+    // Stop typing
+    if (context.typingInterval) {
+      clearInterval(context.typingInterval);
+      context.typingInterval = null;
+    }
+
+    // Handle response based on confidence
+    if (isLowConfidenceResponse(aiResponse)) {
+      await handleLowConfidenceResponse(context, aiResponse);
+    } else {
+      await handleNormalResponse(context, aiResponse);
+    }
+
+  } catch (error) {
+    console.error("❌ Error generating AI response:", error);
+    // Fallback to original method if enhanced system fails
+    await publicConversationService.initializeConversation(conversationKey, null, false, context.message.content);
+    publicConversationService.addUserMessage(conversationKey, context.message.content, false);
+    
+    const conversationHistory = publicConversationService.getConversationHistory(conversationKey, false);
+    const aiResponse = await aiService.generateResponse(conversationHistory);
+    
+    if (context.typingInterval) {
+      clearInterval(context.typingInterval);
+      context.typingInterval = null;
+    }
+
+    if (isLowConfidenceResponse(aiResponse)) {
+      await handleLowConfidenceResponse(context, aiResponse);
+    } else {
+      await handleNormalResponse(context, aiResponse);
+    }
   }
 }
 
@@ -548,4 +608,3 @@ client.on('channelDelete', async (channel) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 client.login(process.env.DISCORD_TOKEN);
-
