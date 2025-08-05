@@ -60,10 +60,6 @@ let ticketButtonHandler;
 let ticketChannelManager;
 let loggingService;
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// BOT INITIALIZATION
-// ═══════════════════════════════════════════════════════════════════════════════
-
 client.once("ready", async () => {
   console.log(constants.MESSAGES.BOT_READY, client.user.tag);
 
@@ -98,7 +94,7 @@ async function initializeServices() {
   try {
     // Initialize public articles
     await publicArticleService.initialize();
-    
+
     // Log initialization status
     const status = publicArticleService.getInitializationStatus();
     console.log("✅ Public articles loaded successfully");
@@ -336,10 +332,10 @@ async function generateAIResponse(context) {
       // Use fallback system prompt
       await publicConversationService.initializeConversation(conversationKey, null, false);
       publicConversationService.addUserMessage(conversationKey, context.message.content, false);
-      
+
       const conversationHistory = publicConversationService.getConversationHistory(conversationKey, false);
       const aiResponse = await aiService.generateResponse(conversationHistory);
-      
+
       if (context.typingInterval) {
         clearInterval(context.typingInterval);
         context.typingInterval = null;
@@ -355,10 +351,10 @@ async function generateAIResponse(context) {
 
     // Get relevant content for the user's query
     const relevantContent = await publicArticleService.getRelevantContent(context.message.content);
-    
+
     // Create enhanced system prompt with query-specific content
     const enhancedSystemPrompt = publicContentManager.createEnhancedSystemPrompt(
-      context.message.content, 
+      context.message.content,
       relevantContent
     );
 
@@ -388,10 +384,10 @@ async function generateAIResponse(context) {
     // Fallback to original method if enhanced system fails
     await publicConversationService.initializeConversation(conversationKey, null, false, context.message.content);
     publicConversationService.addUserMessage(conversationKey, context.message.content, false);
-    
+
     const conversationHistory = publicConversationService.getConversationHistory(conversationKey, false);
     const aiResponse = await aiService.generateResponse(conversationHistory);
-    
+
     if (context.typingInterval) {
       clearInterval(context.typingInterval);
       context.typingInterval = null;

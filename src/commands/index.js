@@ -1,7 +1,9 @@
 import { Collection } from 'discord.js';
-import botresume from './botresume.js';
+import botstart from './botstart.js';
+import botstop from './botstop.js';
 
 const commands = new Collection();
-commands.set(botresume.data.name, botresume);
+commands.set(botstart.data.name, botstart);
+commands.set(botstop.data.name, botstop);
 
 export default commands; 

@@ -244,7 +244,7 @@ class TicketChannelService {
    */
   async detectHumanHelpRequest(message) {
     try {
-      const systemContent = buildHumanHelpPrompt(message.guild.id);
+      const systemContent = buildHumanHelpPrompt();
       const messages = [
         { role: "system", content: systemContent },
         { role: "user", content: message.content }
@@ -254,13 +254,19 @@ class TicketChannelService {
       const aiResponse = await this.aiService.generateResponse(messages, message.guild.id);
       
       // Check if AI detected escalation intent
-      return aiResponse && 
+      const isEscalationRequest = aiResponse && 
              aiResponse.isValid && 
-             aiResponse.response.includes(getServerFallbackResponse(message.guild.id));
+             aiResponse.response.trim().toUpperCase() === "ESCALATE";
+
+      if (isEscalationRequest) {
+        console.log(`🚨 Human help request detected from ${message.author.username}: "${message.content}"`);
+      }
+
+      return isEscalationRequest;
 
     } catch (error) {
       console.error('❌ Error detecting human help request:', error);
-      // Fallback: escalate if AI fails
+      // Fallback: escalate if AI fails to be safe
       return true;
     }
   }
