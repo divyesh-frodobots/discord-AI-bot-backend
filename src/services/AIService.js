@@ -15,10 +15,19 @@ class AIService {
 
   async generateResponse(messages, guildId = null) {
     try {
+      // Add strict instruction to only use provided content
+      const strictMessages = [
+        {
+          role: "system",
+          content: "You are a helpful Discord bot for FrodoBots. You can engage in basic conversation and greetings, but for technical questions about FrodoBots products, you must ONLY use information from the provided conversation context. For technical questions not covered in the provided content, say 'I don't have specific information about that. You can ask to talk to team for more detailed help.'"
+        },
+        ...messages
+      ];
+
       const completion = await this.openai.chat.completions.create({
         model: "gpt-4.1",
-        messages: messages,
-        temperature: 0.8, // Increased for more natural responses
+        messages: strictMessages,
+        temperature: 0.7, // Slightly reduced for more focused responses
         max_tokens: 500, // Reduced from 1000 to leave more room for system prompt
         presence_penalty: 0.1, // Slightly reduce repetition
         frequency_penalty: 0.1 // Slightly reduce repetitive phrases

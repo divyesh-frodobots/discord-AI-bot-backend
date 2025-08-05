@@ -140,6 +140,29 @@ class TicketChannelService {
   }
 
   /**
+   * Check if support team has messaged in this thread
+   * @param {Object} channel - Discord channel object
+   * @returns {Promise<boolean>} True if support team has messaged
+   */
+  async hasSupportTeamMessaged(channel) {
+    try {
+      // Fetch recent messages to check for support team activity
+      const messages = await channel.messages.fetch({ limit: 100 });
+      
+      for (const [id, message] of messages) {
+        if (!message.author.bot && this.isStaffMessage(message)) {
+          console.log(`👥 Support team member ${message.author.tag} has messaged in ${channel.id} - bot will stop responding`);
+          return true;
+        }
+      }
+      return false;
+    } catch (error) {
+      console.error('❌ Error checking for support team messages:', error);
+      return false;
+    }
+  }
+
+  /**
    * Check if AI should respond to this message
    * @param {Object} ticketState - Current ticket state
    * @param {Object} message - Discord message object
@@ -154,6 +177,12 @@ class TicketChannelService {
     // Don't respond to staff messages
     if (this.isStaffMessage(message)) {
       console.log(`👥 Ignoring staff message from ${message.author.tag} in ticket ${message.channel.id}`);
+      return false;
+    }
+
+    // Check if support team has messaged in this thread - if so, bot should stop responding
+    if (await this.hasSupportTeamMessaged(message.channel)) {
+      console.log(`🔇 AI staying silent: Support team has messaged in ${message.channel.id} - human support is active`);
       return false;
     }
 
