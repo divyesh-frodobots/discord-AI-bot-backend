@@ -5,6 +5,7 @@ import { Client, GatewayIntentBits, ChannelType } from "discord.js";
 import BotActivationArticleService from "./services/BotActivationArticleService.js";
 import ConversationService from "./services/ConversationService.js";
 import AIService from "./services/AIService.js";
+import activationCommands from "./commands/activation-commands.js";
 
 /**
  * EarthRovers Bot - Specialized Discord bot for EarthRovers Personal Bots support
@@ -124,6 +125,15 @@ class ActivationBot {
       
       // Set bot status
       this.client.user.setStatus('online');
+            
+      // Register activation slash commands
+      try {
+        const commandData = Array.from(activationCommands.values()).map(command => command.data);
+        await this.client.application.commands.set(commandData);
+        console.log('🎮 Activation slash commands registered successfully');
+      } catch (error) {
+        console.error('❌ Error registering activation slash commands:', error);
+      }
       
       // Initialize EarthRovers articles once on startup
       console.log("🚀 EarthRovers Bot: Initializing comprehensive knowledge base...");
@@ -167,6 +177,35 @@ class ActivationBot {
       // Check if this thread was created in the target EarthRovers channel
       if (this.isEarthRoversActivationThread(message.channel)) {
         await this.handleEarthRoversThreadMessage(message);
+      }
+    });
+
+    // Handle slash command interactions
+    this.client.on('interactionCreate', async interaction => {
+      if (!interaction.isChatInputCommand()) return;
+
+      const command = activationCommands.get(interaction.commandName);
+      
+      if (!command) {
+        console.error(`❌ No activation command matching ${interaction.commandName} was found.`);
+        return;
+      }
+
+      try {
+        await command.execute(interaction, this);
+      } catch (error) {
+        console.error(`❌ Error executing activation command ${interaction.commandName}:`, error);
+        const errorMessage = 'There was an error while executing this command!';
+        
+        try {
+          if (interaction.replied || interaction.deferred) {
+            await interaction.followUp({ content: errorMessage, ephemeral: true });
+          } else {
+            await interaction.reply({ content: errorMessage, ephemeral: true });
+          }
+        } catch (replyError) {
+          console.error('❌ Error sending error reply:', replyError);
+        }
       }
     });
 
