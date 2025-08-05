@@ -46,7 +46,7 @@ let ticketButtonHandler;
 let ticketChannelManager;
 let loggingService;
 
-client.once("ready", () => {
+client.once("ready", async () => {
   console.log(constants.MESSAGES.BOT_READY, client.user.tag);
   
   // Initialize logging service

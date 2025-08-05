@@ -15,11 +15,40 @@ class AIService {
 
   async generateResponse(messages, guildId = null) {
     try {
-      // Add strict instruction to only use provided content
+      // Let AI decide response length based on question complexity
+      const intelligentSystemPrompt = `You are a helpful Discord bot for FrodoBots. You can engage in basic conversation and greetings, but for technical questions about FrodoBots products, you must ONLY use information from the provided conversation context. For technical questions not covered in the provided content, say 'I don't have specific information about that. You can ask to talk to team for more detailed help.'
+
+RESPONSE LENGTH GUIDELINES:
+Analyze the user's question and determine if they need a BRIEF or COMPREHENSIVE response:
+
+BRIEF RESPONSES (aim for 1-3 sentences):
+- Simple factual questions (What is X?, How much does Y cost?)
+- Yes/No questions  
+- Single concept explanations
+- Quick clarifications
+- Basic feature inquiries
+
+COMPREHENSIVE RESPONSES (detailed explanations):
+- Multiple related questions in one message
+- Complex technical processes or workflows
+- Step-by-step instructions needed
+- Comparison questions (X vs Y)
+- Questions requiring context and examples
+- Troubleshooting problems
+
+CRITICAL URL FORMATTING:
+- NEVER format URLs as markdown links [text](url)
+- ALWAYS use plain URLs like: https://www.robots.fun/ 
+- Discord will automatically make plain URLs clickable
+- Do NOT add any brackets, parentheses, or markdown formatting around URLs
+- Example: Use "Visit https://rovers.frodobots.com for more info" NOT "Visit [FrodoBots](https://rovers.frodobots.com) for more info"
+
+Always match your response length to the complexity and scope of what the user is asking. Don't over-explain simple questions, but provide thorough help for complex topics.`;
+
       const strictMessages = [
         {
           role: "system",
-          content: "You are a helpful Discord bot for FrodoBots. You can engage in basic conversation and greetings, but for technical questions about FrodoBots products, you must ONLY use information from the provided conversation context. For technical questions not covered in the provided content, say 'I don't have specific information about that. You can ask to talk to team for more detailed help.'"
+          content: intelligentSystemPrompt
         },
         ...messages
       ];
@@ -28,7 +57,7 @@ class AIService {
         model: "gpt-4.1",
         messages: strictMessages,
         temperature: 0.7, // Slightly reduced for more focused responses
-        max_tokens: 500, // Reduced from 1000 to leave more room for system prompt
+        max_tokens: 500, // Reasonable limit that allows for both brief and comprehensive responses
         presence_penalty: 0.1, // Slightly reduce repetition
         frequency_penalty: 0.1 // Slightly reduce repetitive phrases
       });
