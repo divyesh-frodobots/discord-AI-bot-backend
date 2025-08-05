@@ -88,7 +88,7 @@ class PublicChannelService {
     const sessionKey = `${userId}:${channelId}`;
 
     // Basic validation
-    if (!this.isApprovedChannel(channelName, message.guild.id)) {
+    if (!this.isApprovedChannel(channelId, message.guild.id)) {
       return { shouldRespond: false, reason: 'channel_not_approved' };
     }
 
@@ -268,14 +268,14 @@ class PublicChannelService {
   /**
    * Check if channel is approved for bot operation
    */
-  isApprovedChannel(channelName, guildId) {
+  isApprovedChannel(channelId, guildId) {
     // Get server-specific configuration
     const serverConfig = getServerConfig(guildId);
     
     // Use server-specific public channels if configured, otherwise fall back to global config
-    const approvedChannels = serverConfig?.publicChannels || botRules.PUBLIC_CHANNELS.APPROVED_CHANNELS;
+    const approvedChannels = serverConfig?.publicChannels;
     
-    return approvedChannels.includes(channelName);
+    return approvedChannels.includes(channelId);
   }
 
   /**
@@ -444,7 +444,7 @@ class PublicChannelService {
     // Scan for existing threads
     for (const [channelId, channel] of client.channels.cache) {
       if (channel.isThread() && channel.parent && !channel.archived) {
-        const isApprovedParent = this.isApprovedChannel(channel.parent.name, channel.guild.id);
+        const isApprovedParent = this.isApprovedChannel(channel.parent.id, channel.guild.id);
         if (!isApprovedParent) continue;
         
         try {

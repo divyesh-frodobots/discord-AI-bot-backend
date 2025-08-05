@@ -178,15 +178,15 @@ function isPublicChannelMessage(message) {
   const serverConfig = getServerConfig(message.guild.id);
   
   // Use server-specific public channels if configured, otherwise fall back to global config
-  const approvedChannels = serverConfig?.publicChannels || botRules.PUBLIC_CHANNELS.APPROVED_CHANNELS;
+  const approvedChannels = serverConfig?.publicChannels;
 
   // Direct public channel message
-  const isPublicChannel = approvedChannels.includes(channelInfo.channelName);
+  const isPublicChannel = approvedChannels.includes(channelInfo.channelId);
 
   // Message in thread of public channel
   const isInPublicThread = message.channel.isThread() &&
     message.channel.parent &&
-    approvedChannels.includes(message.channel.parent.name);
+    approvedChannels.includes(message.channel.parent.id);
 
   return isPublicChannel || isInPublicThread;
 }

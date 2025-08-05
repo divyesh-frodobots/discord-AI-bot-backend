@@ -10,12 +10,14 @@ export default {
   // Public Channels Configuration
   PUBLIC_CHANNELS: {
     // Global fallback channels (used when server doesn't have specific configuration)
-    // For server-specific channels, configure in serverConfigs.js
+    // For server-specific channels, configure in serverConfigs.js using channel IDs
+    // NOTE: This global config is deprecated - use server-specific publicChannels in serverConfigs.js
     APPROVED_CHANNELS: [
-      "test-bot-ai", // #test-bot-ai
-      "test",
-      "public-testing",
-      "bot-public"
+      // These should be channel IDs, not names (keeping as legacy fallback)
+      // "1183956359008485499", // test-bot-ai channel ID
+      // "1215167403848114220", // test channel ID
+      // "1215167403848114221", // public-testing channel ID
+      // "1215167403848114222", // bot-public channel ID
     ],
 
     // Trigger conditions

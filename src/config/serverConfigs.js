@@ -18,10 +18,15 @@ const serverConfigs = {
     ],
     loggingChannels: {
       ticketLogs: "1183956359008485496",
-      adminLogs: "admin-logs",
-      publicLogs: "logging-public"
+      adminLogs: "1183956359008485497", // Replace with actual admin-logs channel ID
+      publicLogs: "1402275545495900272" // Replace with actual logging-public channel ID
     },
-    escalationRole: "@SupportTeam"
+    escalationRole: "@SupportTeam",
+    publicChannels: [
+      "1349578392571215972", // ufb channel ID
+      "1331209321316614195", // robotsdotfun channel ID
+      "1092454781462781982", // test-drive channel ID
+    ]
   },
   "1205162105205166151": {
     guildId: "1205162105205166151", // Correct guild ID from logs
@@ -44,11 +49,41 @@ const serverConfigs = {
     ],
     loggingChannels: {
       ticketLogs: "1215167403848114217",
-      adminLogs: "admin-logs",
-      publicLogs: "logging-public"
+      adminLogs: "1215167403848114218", // Replace with actual admin-logs channel ID
+      publicLogs: "1402274942954897572" // Replace with actual logging-public channel ID
     },
-    escalationRole: "@SupportTeam"
-  }
+    escalationRole: "@SupportTeam",
+    publicChannels: [
+      "1205162105205166154", // general-chat channel ID
+    ]
+  },
+  // "1375027327582470205": {
+  //   guildId: "1375027327582470205", // Correct guild ID from logs
+  //   name: "dev-test", 
+  //   ticketChannelId: "1215167614649765960", // Parent channel for tickets
+  //   supportTeamRoleId: "1384038915106934924",
+  //   staffRoleIds: [
+  //     "1384038915106934924", // Support team role ID
+  //   ],
+  //   staffRoles: [
+  //       "My Support team"
+  //   ],
+  //   staffPermissions: [
+  //     "ManageMessages",
+  //     "ManageChannels",
+  //     "ManageRoles",
+  //     "ManageGuild",
+  //   ],
+  //   loggingChannels: {
+  //     ticketLogs: "1215167403848114217",
+  //     adminLogs: "1215167403848114218", // Replace with actual admin-logs channel ID
+  //     publicLogs: "1215167403848114219" // Replace with actual logging-public channel ID
+  //   },
+  //   escalationRole: "@SupportTeam",
+  //   publicChannels: [
+  //     "1402262321027485807", // Replace with actual test channel ID
+  //   ]
+  // }
 };
 
 export default serverConfigs;
