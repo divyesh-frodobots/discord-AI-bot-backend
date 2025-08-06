@@ -13,6 +13,7 @@ import PublicChannelService from './services/PublicChannelService.js';
 import ChannelService from './services/ChannelService.js';
 import PublicArticleService from "./services/PublicArticleService.js";
 import PublicContentManager from "./services/PublicContentManager.js";
+import dynamicChannelService from './services/DynamicPublicChannelService.js';
 
 // Import handlers
 import TicketButtonHandler from './services/TicketButtonHandler.js';
@@ -153,7 +154,7 @@ client.on("messageCreate", async (message) => {
     }
 
     // Route to public channel system
-    if (isPublicChannelMessage(message)) {
+    if (await isPublicChannelMessage(message)) {
       await handlePublicChannelFlow(message);
       return;
     }
@@ -166,19 +167,23 @@ client.on("messageCreate", async (message) => {
 
 /**
  * Check if message is in a public channel or thread
+ * Now supports DYNAMIC channels from Redis - NO RESTART NEEDED!
  */
-function isPublicChannelMessage(message) {
+async function isPublicChannelMessage(message) {
   if (!botRules.DEVELOPER_CONTROLS.ENABLE_PUBLIC_CHANNELS) {
+    console.log(`🚫 Public channels disabled`);
     return false;
   }
 
   const channelInfo = channelService.getChannelInfo(message);
+  const guildId = message.guild.id;
   
-  // Get server-specific configuration
-  const serverConfig = getServerConfig(message.guild.id);
-  
-  // Use server-specific public channels if configured, otherwise fall back to global config
-  const approvedChannels = serverConfig?.publicChannels;
+  // Get dynamic public channels only
+  const approvedChannels = await dynamicChannelService.getAllPublicChannels(guildId);
+
+  // Debug logging
+  console.log(`🔍 Checking message in guild ${guildId}, channel ${channelInfo.channelId} (#${message.channel.name})`);
+  console.log(`📋 Approved channels: [${approvedChannels.join(', ')}]`);
 
   // Direct public channel message
   const isPublicChannel = approvedChannels.includes(channelInfo.channelId);
@@ -188,7 +193,10 @@ function isPublicChannelMessage(message) {
     message.channel.parent &&
     approvedChannels.includes(message.channel.parent.id);
 
-  return isPublicChannel || isInPublicThread;
+  const result = isPublicChannel || isInPublicThread;
+  console.log(`✅ Channel ${channelInfo.channelId} is public: ${result}`);
+
+  return result;
 }
 
 /**
