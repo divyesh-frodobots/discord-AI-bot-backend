@@ -3,6 +3,7 @@ import { buildHumanHelpPrompt } from './ArticleService.js';
 import constants from '../config/constants.js';
 import redis from './redisClient.js';
 import { getServerConfig } from '../config/serverConfigs.js';
+import dynamicChannelService from './DynamicPublicChannelService.js';
 
 /**
  * Public Channel Service - Thread-Based Conversation Management
@@ -52,7 +53,7 @@ class PublicChannelService {
     }
 
     // MAIN CHANNEL MESSAGES: Handle new conversation requests
-    return this._handleMainChannelMessage(message, userId, botUserId, client);
+    return await this._handleMainChannelMessage(message, userId, botUserId, client);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════════
@@ -63,32 +64,27 @@ class PublicChannelService {
    * Handle messages within existing threads
    */
   async _handleThreadMessage(message, userId) {
-    if (!(await this.isInUserThread(message))) {
-      return { shouldRespond: false, reason: 'not_user_thread' };
+    // Check if this is the user's own thread
+    if (await this.isInUserThread(message)) {
+      console.log(`📝 Message from ${userId} in their own thread: ${message.channel.name}`);
+      return { shouldRespond: true, reason: 'in_user_thread' };
     }
 
-    // Check escalation state per thread
-    const parentChannelId = message.channel.parentId;
-    const threadId = message.channel.id;
-    const sessionKey = `${userId}:${parentChannelId}:${threadId}`;
-    
-    if (this.escalatedUsers.get(sessionKey)) {
-      return { shouldRespond: false, reason: 'escalated' };
-    }
-
-    return { shouldRespond: true, reason: 'in_user_thread' };
+    // Not in user's own thread
+    return { shouldRespond: false, reason: 'not_user_thread' };
   }
 
   /**
    * Handle messages in main channel (thread creation requests)
+   * NOW SUPPORTS DYNAMIC CHANNELS!
    */
-  _handleMainChannelMessage(message, userId, botUserId, client) {
+  async _handleMainChannelMessage(message, userId, botUserId, client) {
     const channelName = message.channel.name;
     const channelId = message.channel.id;
     const sessionKey = `${userId}:${channelId}`;
 
-    // Basic validation
-    if (!this.isApprovedChannel(channelId, message.guild.id)) {
+    // Basic validation - NOW CHECKS DYNAMIC CHANNELS!
+    if (!(await this.isApprovedChannel(channelId, message.guild.id))) {
       return { shouldRespond: false, reason: 'channel_not_approved' };
     }
 
@@ -97,13 +93,21 @@ class PublicChannelService {
       return { shouldRespond: false, reason: 'no_mention' };
     }
 
-    // Check rate limits
-    const rateLimitCheck = this.checkRateLimit(userId);
-    if (!rateLimitCheck.allowed) {
-      return { shouldRespond: false, reason: 'rate_limited', cooldownRemaining: rateLimitCheck.cooldownRemaining };
+    // Rate limiting
+    if (this._isRateLimited(userId)) {
+      console.log(`⏱️ Rate limited user ${userId} in ${channelName}`);
+      return { shouldRespond: false, reason: 'rate_limited' };
     }
 
-    return { shouldRespond: true, reason: 'mention_create_thread' };
+    // Check if user already has an active thread
+    if (await this.hasActiveThread(userId, channelId, client)) {
+      console.log(`🔄 User ${userId} already has active thread in ${channelName}`);
+      return { shouldRespond: false, reason: 'has_active_thread' };
+    }
+
+    // All checks passed
+    console.log(`✅ New conversation request from ${userId} in ${channelName}`);
+    return { shouldRespond: true, reason: 'new_conversation' };
   }
 
   /**
@@ -145,7 +149,7 @@ class PublicChannelService {
   async hasActiveThread(userId, channelId, client) {
     const sessionKey = `${userId}:${channelId}`;
     // Try Redis first
-    let threadId = await redis.get(`publicthread:${userId}:${channelId}:${threadId}`);
+    let threadId = await redis.get(`publicthread:${userId}:${channelId}`);
     if (!threadId) {
       // Fallback to in-memory (for legacy/transition)
       threadId = this.userThreads.get(sessionKey);
@@ -267,15 +271,17 @@ class PublicChannelService {
 
   /**
    * Check if channel is approved for bot operation
+   * DYNAMIC CHANNELS ONLY!
    */
-  isApprovedChannel(channelId, guildId) {
-    // Get server-specific configuration
-    const serverConfig = getServerConfig(guildId);
-    
-    // Use server-specific public channels if configured, otherwise fall back to global config
-    const approvedChannels = serverConfig?.publicChannels;
-    
-    return approvedChannels.includes(channelId);
+  async isApprovedChannel(channelId, guildId) {
+    try {
+      // Use dynamic channel service to get ONLY dynamic channels
+      const approvedChannels = await dynamicChannelService.getAllPublicChannels(guildId);
+      return approvedChannels.includes(channelId);
+    } catch (error) {
+      console.error(`❌ Error checking if channel ${channelId} is approved:`, error);
+      return false; // No fallback - dynamic only
+    }
   }
 
   /**
@@ -284,14 +290,60 @@ class PublicChannelService {
   _isBotMentioned(content, botUserId) {
     if (!botUserId) return false;
     
-    // Check for direct bot mentions
-    const hasDirectMention = content.includes(`<@${botUserId}>`) || content.includes(`<@!${botUserId}>`);
+    // Direct @mention
+    if (content.includes(`<@${botUserId}>`) || content.includes(`<@!${botUserId}>`)) {
+      return true;
+    }
     
-    // Check for bot-related role mentions (common issue where users mention bot role instead of bot user)
-    const botRoleId = botRules.PUBLIC_CHANNELS.TRIGGERS.BOT_ROLE_ID;
-    const hasBotRoleMention = botRoleId && content.includes(`<@&${botRoleId}>`);
+    return false;
+  }
+
+  /**
+   * Check if user is rate limited
+   */
+  _isRateLimited(userId) {
+    const now = Date.now();
+    const userLimits = this.userRateLimits.get(userId);
     
-    return hasDirectMention || hasBotRoleMention;
+    if (!userLimits) {
+      // First time user, not rate limited
+      this.userRateLimits.set(userId, {
+        lastRequest: now,
+        requestCount: 1,
+        windowStart: now
+      });
+      return false;
+    }
+    
+    // Check if we're in a new time window (reset every minute)
+    const windowDuration = 60 * 1000; // 1 minute
+    if (now - userLimits.windowStart > windowDuration) {
+      // New window, reset counters
+      userLimits.windowStart = now;
+      userLimits.requestCount = 1;
+      userLimits.lastRequest = now;
+      return false;
+    }
+    
+    // Check rate limits
+    const maxRequestsPerMinute = botRules.PUBLIC_CHANNELS.RATE_LIMITS.MAX_QUERIES_PER_MINUTE;
+    const cooldownSeconds = botRules.PUBLIC_CHANNELS.RATE_LIMITS.COOLDOWN_SECONDS;
+    
+    // Check cooldown
+    if (now - userLimits.lastRequest < cooldownSeconds * 1000) {
+      return true; // Still in cooldown
+    }
+    
+    // Check request count
+    if (userLimits.requestCount >= maxRequestsPerMinute) {
+      return true; // Too many requests
+    }
+    
+    // Update counters
+    userLimits.requestCount++;
+    userLimits.lastRequest = now;
+    
+    return false;
   }
 
   /**
@@ -444,7 +496,8 @@ class PublicChannelService {
     // Scan for existing threads
     for (const [channelId, channel] of client.channels.cache) {
       if (channel.isThread() && channel.parent && !channel.archived) {
-        const isApprovedParent = this.isApprovedChannel(channel.parent.id, channel.guild.id);
+        // NOW SUPPORTS DYNAMIC CHANNELS!
+        const isApprovedParent = await this.isApprovedChannel(channel.parent.id, channel.guild.id);
         if (!isApprovedParent) continue;
         
         try {
@@ -460,21 +513,24 @@ class PublicChannelService {
             
             if (member) {
               const userId = member.user.id;
-              const parentChannelId = channel.parentId;
+              const parentChannelId = channel.parent.id;
               const sessionKey = `${userId}:${parentChannelId}`;
               
+              // Store in both in-memory and Redis
               this.userThreads.set(sessionKey, channel.id);
+              await redis.setEx(`publicthread:${userId}:${parentChannelId}`, 86400, channel.id);
+              
               rebuiltCount++;
-              console.log(`🔗 Restored thread: ${threadName} -> ${member.user.username}`);
+              console.log(`📝 Rebuilt tracking for ${possibleUsername} (${userId}) in thread ${channel.name}`);
             }
           }
         } catch (error) {
-          console.log(`⚠️ Could not rebuild tracking for thread: ${channel.name}`);
+          console.error(`❌ Error processing thread ${channel.name}:`, error);
         }
       }
     }
     
-    console.log(`✅ Rebuilt tracking for ${rebuiltCount} threads`);
+    console.log(`✅ Rebuilt tracking for ${rebuiltCount} active threads`);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════════

@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node src/index.js",
     "start:activation": "node src/activation-bot.js",
+    "start:channels": "node src/channel-manager.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -17,6 +18,7 @@
     "cheerio": "^1.1.0",
     "discord.js": "^14.20.0",
     "dotenv": "^16.5.0",
+    "express": "^5.1.0",
     "natural": "^8.1.0",
     "openai": "^5.5.1",
     "redis": "^5.6.1"
