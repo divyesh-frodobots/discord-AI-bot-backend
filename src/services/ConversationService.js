@@ -13,7 +13,7 @@ class ConversationService {
   }
 
   // Get conversation ID - can be channel-based or user-based
-  getConversationId(message, useUserBased = true) {image.png
+  getConversationId(message, useUserBased = true) {
     if (useUserBased) {
       return `user_${message.author.id}`;
     } else {
@@ -26,9 +26,9 @@ class ConversationService {
     if (!this.systemMessage) {
       // Get cached articles from ArticleService
       const articles = await this.articleService.getAllArticles();
-      
-      this.systemMessage = { 
-        role: "system", 
+
+      this.systemMessage = {
+        role: "system",
         content: `You are a helpful assistant for FrodoBots, operating as a Discord bot within the FrodoBots Discord server. You have access to the following information from official help articles:
 
 ${articles}
@@ -70,21 +70,71 @@ Remember: Always build on previous context and make connections to earlier parts
     return this.systemMessage;
   }
 
-  async initializeConversation(conversationId, articles = null, isUserBased = true) {
-    // If articles is provided (for product-specific conversations), use it
-    // Otherwise, use the cached system message for general conversations
+  // NEW: Initialize conversation with query-specific content for public channels
+  async initializeConversation(conversationId, articles = null, isUserBased = true, userQuery = null) {
     const key = isUserBased ? `user_${conversationId}` : conversationId;
-    
+
     if (!this.userConversations[key]) {
       if (articles) {
         // For product-specific conversations (like tickets), use provided articles
         this.userConversations[key] = [{ role: "system", content: articles }];
       } else {
-        // For general conversations (like public channels), use cached system message
-        const systemMessage = await this.initializeSystemMessage();
-        this.userConversations[key] = [systemMessage];
+        // For general conversations (like public channels), use query-specific content
+        if (userQuery && this.articleService.getRelevantContent) {
+          // Use the new query-specific content system
+          try {
+            const relevantContent = await this.articleService.getRelevantContent(userQuery);
+            const systemMessage = await this._createQuerySpecificSystemMessage(userQuery, relevantContent);
+            this.userConversations[key] = [systemMessage];
+          } catch (error) {
+            console.error("Error getting query-specific content, falling back to general:", error);
+            const systemMessage = await this.initializeSystemMessage();
+            this.userConversations[key] = [systemMessage];
+          }
+        } else {
+          // Fallback to cached system message
+          const systemMessage = await this.initializeSystemMessage();
+          this.userConversations[key] = [systemMessage];
+        }
       }
     }
+  }
+
+  // NEW: Create query-specific system message
+  async _createQuerySpecificSystemMessage(query, relevantContent) {
+    return {
+      role: "system",
+      content: `You are a helpful assistant for FrodoBots, operating as a Discord bot within the FrodoBots Discord server. 
+
+USER'S QUESTION: "${query}"
+
+RELEVANT INFORMATION:
+${relevantContent}
+
+CONVERSATION GUIDELINES:
+- Answer the user's question based ONLY on the relevant information provided above
+- If the information doesn't cover their specific question, say "I don't have specific information about that. You can ask to talk to team for more detailed help."
+- Be friendly, conversational, and helpful
+- Keep responses concise but informative
+- If you need more context, ask the user to clarify their question
+- Always maintain conversation context and refer to previous messages when relevant
+
+DISCORD CONTEXT:
+- You are running as a Discord bot, already within the FrodoBots Discord server
+- Users are interacting with you directly through Discord messages
+- If users need human support, they can ask to "talk to team" right here in Discord
+
+CRITICAL INSTRUCTIONS:
+1. Focus on answering the specific question: "${query}"
+2. Use ONLY the relevant information provided above
+3. If the information doesn't cover the question, be honest and suggest talking to team
+4. Be conversational and maintain context throughout the conversation
+5. DO NOT mention website chat widgets or external contact methods - you're already in Discord with them
+6. DO NOT add generic closing statements - end responses naturally
+7. For technical questions not covered in the provided information, say "I don't have specific information about that. You can ask to talk to team for more detailed help."
+
+Remember: Provide accurate, helpful information based on the relevant content provided. When users need additional support, remind them they can ask to "talk to team" right here in Discord.`
+    };
   }
 
   addUserMessage(conversationId, message, isUserBased = true) {
@@ -105,9 +155,9 @@ Remember: Always build on previous context and make connections to earlier parts
     const totalContent = this.userConversations[conversationKey]
       .map(msg => msg.content)
       .join(' ');
-    
+
     const estimatedTokens = this.estimateTokens(totalContent);
-    
+
     if (estimatedTokens > this.MAX_CONVERSATION_TOKENS) {
       const systemMessage = this.userConversations[conversationKey][0];
       // Keep more messages for better context (last 10 instead of 6)
@@ -120,118 +170,141 @@ Remember: Always build on previous context and make connections to earlier parts
   getConversationHistory(conversationId, isUserBased = true) {
     const key = isUserBased ? `user_${conversationId}` : conversationId;
     const history = this.userConversations[key] || [];
-    
+
     // Log conversation context for debugging
     if (history.length > 1) {
       const userMessages = history.filter(msg => msg.role === 'user');
       const assistantMessages = history.filter(msg => msg.role === 'assistant');
       console.log(`Conversation context: ${userMessages.length} user messages, ${assistantMessages.length} assistant messages`);
-      
+
       if (userMessages.length > 0) {
-        console.log(`Last user message: "${userMessages[userMessages.length - 1].content.substring(0, 100)}..."`);
+        const lastUserMessage = userMessages[userMessages.length - 1];
+        console.log(`Last user message: "${lastUserMessage.content.substring(0, 100)}..."`);
       }
     }
-    
+
     return history;
   }
 
-  // Get user's conversation history
   getUserConversation(userId) {
     const key = `user_${userId}`;
     return this.userConversations[key] || [];
   }
 
-  // Check if user has previous conversation
   hasUserHistory(userId) {
     const key = `user_${userId}`;
     return this.userConversations[key] && this.userConversations[key].length > 1;
   }
 
-  // Get conversation context summary for debugging
   getConversationContext(userId) {
-    const key = `user_${userId}`;
-    const conversation = this.userConversations[key] || [];
-    
-    console.log(`🔍 Checking context for user ${userId} (key: ${key})`);
-    console.log(`   Conversation exists: ${!!this.userConversations[key]}`);
-    console.log(`   Conversation length: ${conversation.length}`);
-    console.log(`   Available conversations: ${Object.keys(this.userConversations).join(', ')}`);
-    
-    if (conversation.length <= 1) {
-      return { hasContext: false, message: "No previous conversation" };
-    }
-    
+    const conversation = this.getUserConversation(userId);
+    if (conversation.length === 0) return null;
+
     const userMessages = conversation.filter(msg => msg.role === 'user');
     const assistantMessages = conversation.filter(msg => msg.role === 'assistant');
-    
+
     return {
-      hasContext: true,
       totalMessages: conversation.length - 1, // Exclude system message
       userMessages: userMessages.length,
       assistantMessages: assistantMessages.length,
-      lastUserMessage: userMessages[userMessages.length - 1]?.content || null,
-      lastAssistantMessage: assistantMessages[assistantMessages.length - 1]?.content || null,
-      conversationPreview: conversation.slice(-4).map(msg => `${msg.role}: ${msg.content.substring(0, 50)}...`)
+      lastUserMessage: userMessages.length > 0 ? userMessages[userMessages.length - 1].content : null,
+      lastAssistantMessage: assistantMessages.length > 0 ? assistantMessages[assistantMessages.length - 1].content : null,
+      conversationStart: conversation.length > 1 ? conversation[1].timestamp : null
     };
   }
 
-  // Get user's conversation summary
   getUserConversationSummary(userId) {
     const conversation = this.getUserConversation(userId);
-    if (conversation.length <= 1) return null; // Only system message
-    
+    if (conversation.length <= 1) return "No conversation history";
+
     const userMessages = conversation.filter(msg => msg.role === 'user');
     const assistantMessages = conversation.filter(msg => msg.role === 'assistant');
-    
-    return {
-      totalMessages: conversation.length - 1, // Exclude system message
+
+    const summary = {
+      userId: userId,
+      totalMessages: conversation.length - 1,
       userMessages: userMessages.length,
       assistantMessages: assistantMessages.length,
-      lastUserMessage: userMessages[userMessages.length - 1]?.content || null,
-      lastAssistantMessage: assistantMessages[assistantMessages.length - 1]?.content || null
+      topics: this._extractTopics(userMessages),
+      lastActivity: userMessages.length > 0 ? userMessages[userMessages.length - 1].content : null
     };
+
+    return summary;
+  }
+
+  _extractTopics(userMessages) {
+    const topics = new Set();
+    const topicKeywords = {
+      'setup': ['setup', 'install', 'configuration', 'getting started'],
+      'troubleshooting': ['problem', 'issue', 'error', 'fix', 'help'],
+      'features': ['feature', 'function', 'capability', 'what can'],
+      'pricing': ['price', 'cost', 'payment', 'subscription'],
+      'support': ['support', 'help', 'contact', 'team']
+    };
+
+    userMessages.forEach(msg => {
+      const content = msg.content.toLowerCase();
+      Object.entries(topicKeywords).forEach(([topic, keywords]) => {
+        if (keywords.some(keyword => content.includes(keyword))) {
+          topics.add(topic);
+        }
+      });
+    });
+
+    return Array.from(topics);
   }
 
   clearConversation(conversationId, isUserBased = true) {
     const key = isUserBased ? `user_${conversationId}` : conversationId;
-    delete this.userConversations[key];
+    if (this.userConversations[key]) {
+      delete this.userConversations[key];
+      console.log(`Cleared conversation for ${key}`);
+    }
   }
 
-  // Clear specific user's conversation
   clearUserConversation(userId) {
-    const key = `user_${userId}`;
-    delete this.userConversations[key];
-    console.log(`Cleared conversation history for user ${userId}`);
+    this.clearConversation(userId, true);
   }
 
   getConversationStats(conversationId, isUserBased = true) {
     const key = isUserBased ? `user_${conversationId}` : conversationId;
-    const history = this.userConversations[key] || [];
-    const totalContent = history.map(msg => msg.content).join(' ');
-    const estimatedTokens = this.estimateTokens(totalContent);
-    
+    const conversation = this.userConversations[key] || [];
+
+    if (conversation.length === 0) {
+      return {
+        exists: false,
+        messageCount: 0,
+        userMessages: 0,
+        assistantMessages: 0,
+        estimatedTokens: 0
+      };
+    }
+
+    const userMessages = conversation.filter(msg => msg.role === 'user');
+    const assistantMessages = conversation.filter(msg => msg.role === 'assistant');
+    const totalContent = conversation.map(msg => msg.content).join(' ');
+
     return {
-      messageCount: history.length,
-      estimatedTokens,
-      isOverLimit: estimatedTokens > this.MAX_CONVERSATION_TOKENS,
-      isUserBased: isUserBased
+      exists: true,
+      messageCount: conversation.length,
+      userMessages: userMessages.length,
+      assistantMessages: assistantMessages.length,
+      estimatedTokens: this.estimateTokens(totalContent),
+      lastUserMessage: userMessages.length > 0 ? userMessages[userMessages.length - 1].content : null,
+      lastAssistantMessage: assistantMessages.length > 0 ? assistantMessages[assistantMessages.length - 1].content : null
     };
   }
 
-  // Get all active user conversations
   getAllUserConversations() {
-    const users = {};
+    const conversations = {};
     for (const [key, conversation] of Object.entries(this.userConversations)) {
       if (key.startsWith('user_')) {
         const userId = key.replace('user_', '');
-        users[userId] = {
-          messageCount: conversation.length,
-          estimatedTokens: this.estimateTokens(conversation.map(msg => msg.content).join(' '))
-        };
+        conversations[userId] = this.getConversationStats(userId, true);
       }
     }
-    return users;
+    return conversations;
   }
 }
 
-export default ConversationService; 
+export default ConversationService;

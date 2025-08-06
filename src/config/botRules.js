@@ -9,15 +9,21 @@ export default {
 
   // Public Channels Configuration
   PUBLIC_CHANNELS: {
-    // Approved channels where bot can respond
+    // Global fallback channels (used when server doesn't have specific configuration)
+    // For server-specific channels, configure in serverConfigs.js using channel IDs
+    // NOTE: This global config is deprecated - use server-specific publicChannels in serverConfigs.js
     APPROVED_CHANNELS: [
-      "test-bot-ai", // #test-bot-ai
-      "test"
+      // These should be channel IDs, not names (keeping as legacy fallback)
+      // "1183956359008485499", // test-bot-ai channel ID
+      // "1215167403848114220", // test channel ID
+      // "1215167403848114221", // public-testing channel ID
+      // "1215167403848114222", // bot-public channel ID
     ],
 
     // Trigger conditions
     TRIGGERS: {
       MENTION_BOT: true,        // @FrodoBot
+      BOT_ROLE_ID: "1384878308398993542", // FrodoBots AI role ID (for role mentions)
       PREFIX_COMMANDS: [        // Command prefixes
         "/ask",
         "!help",
@@ -82,14 +88,13 @@ export default {
 
     // Staff roles (bot ignores messages from these roles)
     STAFF_ROLES: [
-      "Customer Support",
-      "FrodoBots Team",
+      // "My Support team",
+      "Customer Support"
     ],
 
     // Staff role IDs (bot ignores messages from these role IDs)
     STAFF_ROLE_IDS: [
-      "1217016478193422406", // Support team role ID
-      "1206793648734347284", // FrodoBots Team role ID
+      "1396708268998660179", // Support team role ID
       // Add more staff role IDs here as needed
     ],
 

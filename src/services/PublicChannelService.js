@@ -1,142 +1,493 @@
 import botRules from '../config/botRules.js';
+import { buildHumanHelpPrompt } from './ArticleService.js';
+import constants from '../config/constants.js';
+import redis from './redisClient.js';
+import { getServerConfig } from '../config/serverConfigs.js';
 
+/**
+ * Public Channel Service - Thread-Based Conversation Management
+ * 
+ * Flow Overview:
+ * 1. User mentions bot in public channel → Create dedicated thread
+ * 2. All conversation happens in user's thread
+ * 3. AI escalation detection → Human support if needed
+ * 4. Thread archives after 24 hours → User can create new thread
+ */
 class PublicChannelService {
   constructor() {
-    this.userRateLimits = new Map(); // Track user rate limits
-    this.lastQueryTime = new Map(); // Track last query time per user
-    this.activeSessions = new Map(); // Map of `${userId}:${channelId}` -> lastActiveTimestamp
-    this.escalatedUsers = new Map(); // Map of `${userId}:${channelId}` -> true if escalated
-    this.lastAnswered = new Map(); // Map of `${userId}:${channelId}` -> timestamp of last answered
-    this.SESSION_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour (updated from 10 min)
-    this.COOLDOWN_SECONDS = 10; // 10 seconds cooldown between answers
+    // Core tracking maps
+    this.userRateLimits = new Map();     // Rate limiting per user
+    this.escalatedUsers = new Map();     // Escalated users: userId:channelId → true
+    this.userThreads = new Map();        // Active threads: userId:channelId → threadId
+    
+    // Configuration constants
+    this.THREAD_AUTO_ARCHIVE_DURATION = 1440; // 24 hours in minutes
+    this.SIMPLE_GREETING_MAX_LENGTH = 5;
+    this.COMPLEX_MESSAGE_MIN_LENGTH = 20;
+    this.SIMPLE_GREETINGS = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening'];
+    this.HUMAN_REQUEST_KEYWORDS = [
+      'talk to human', 'speak to human', 'human help', 'real person', 
+      'support team', 'customer service', 'escalate', 'talk to team',
+      'speak to team', 'need human', 'human support', 'contact team'
+    ];
   }
 
-  /**
-   * Check if the bot should respond to a message in public channels
-   * Now supports active session logic: after a valid trigger+question, respond to follow-up questions for 1 hour
-   * Now supports escalation: if escalated, ignore further messages from that user in that channel
-   * Now supports cooldown: user must wait 10 seconds between answers
-   */
-  shouldRespond(message, botUserId) {
-    const channelName = message.channel.name;
-    const userId = message.author.id;
-    const channelId = message.channel.id;
-    const sessionKey = `${userId}:${channelId}`;
-    const now = Date.now();
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // MAIN FLOW - Entry point for message processing
+  // ═══════════════════════════════════════════════════════════════════════════════
 
-    // Check if channel is approved
-    if (!this.isApprovedChannel(channelName)) {
-      return { shouldRespond: false, reason: 'channel_not_approved' };
+  /**
+   * Main entry point: Determine if bot should respond to a message
+   * @param {Object} message - Discord message object
+   * @param {string} botUserId - Bot's user ID
+   * @param {Object} client - Discord client
+   * @returns {Object} Response decision with reason
+   */
+  async shouldRespond(message, botUserId, client = null) {
+    const userId = message.author.id;
+
+    // THREAD MESSAGES: Handle messages in existing threads
+    if (message.channel.isThread()) {
+      return await this._handleThreadMessage(message, userId);
     }
 
-    // Escalation state: if user is escalated in this channel, always escalate
+    // MAIN CHANNEL MESSAGES: Handle new conversation requests
+    return this._handleMainChannelMessage(message, userId, botUserId, client);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // THREAD MANAGEMENT - Core thread-based conversation logic
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Handle messages within existing threads
+   */
+  async _handleThreadMessage(message, userId) {
+    if (!(await this.isInUserThread(message))) {
+      return { shouldRespond: false, reason: 'not_user_thread' };
+    }
+
+    // Check escalation state per thread
+    const parentChannelId = message.channel.parentId;
+    const threadId = message.channel.id;
+    const sessionKey = `${userId}:${parentChannelId}:${threadId}`;
+    
     if (this.escalatedUsers.get(sessionKey)) {
       return { shouldRespond: false, reason: 'escalated' };
     }
 
-    // Cooldown: if last answer was less than COOLDOWN_SECONDS ago, do not respond
-    const lastAnswered = this.lastAnswered.get(sessionKey);
-    if (lastAnswered && (now - lastAnswered < this.COOLDOWN_SECONDS * 1000)) {
-      return { shouldRespond: false, reason: 'cooldown' };
+    return { shouldRespond: true, reason: 'in_user_thread' };
+  }
+
+  /**
+   * Handle messages in main channel (thread creation requests)
+   */
+  _handleMainChannelMessage(message, userId, botUserId, client) {
+    const channelName = message.channel.name;
+    const channelId = message.channel.id;
+    const sessionKey = `${userId}:${channelId}`;
+
+    // Basic validation
+    if (!this.isApprovedChannel(channelId, message.guild.id)) {
+      return { shouldRespond: false, reason: 'channel_not_approved' };
     }
 
-    // Check for escalation phrases FIRST (before other checks)
-    if (this.hasEscalationPhrase(message.content)) {
-      this.escalatedUsers.set(sessionKey, true);
-      return { shouldRespond: false, reason: 'escalation_requested', escalateNow: true };
+    // Check for bot mention
+    if (!this._isBotMentioned(message.content, botUserId)) {
+      return { shouldRespond: false, reason: 'no_mention' };
     }
 
-    // Check if user has an active session in this channel
-    const lastActive = this.activeSessions.get(sessionKey);
-    const sessionActive = lastActive && (now - lastActive < this.SESSION_TIMEOUT_MS);
-
-    // If session is active, respond to any question (no trigger needed)
-    if (sessionActive) {
-      if (this.isQuestion(message.content)) {
-        this.activeSessions.set(sessionKey, now); // refresh session
-        // Check rate limits
-        const rateLimitCheck = this.checkRateLimit(userId);
-        if (!rateLimitCheck.allowed) {
-          return { shouldRespond: false, reason: 'rate_limited', cooldownRemaining: rateLimitCheck.cooldownRemaining };
-        }
-        this.lastAnswered.set(sessionKey, now); // set cooldown
-        return { shouldRespond: true, reason: 'active_session' };
-      } else {
-        return { shouldRespond: false, reason: 'not_a_question' };
-      }
-    }
-
-    // If no active session, require trigger + question
-    const triggerCheck = this.checkTriggers(message.content, botUserId);
-    if (!triggerCheck.triggered) {
-      // Do NOT start a session, do NOT respond
-      return { shouldRespond: false, reason: 'no_trigger' };
-    }
-    if (!this.isQuestion(message.content)) {
-      // Friendly prompt if triggered but not a question
-      return { shouldRespond: false, reason: 'trigger_no_question', triggered: true };
-    }
-    // Passed: start session ONLY if trigger + question
-    this.activeSessions.set(sessionKey, now);
     // Check rate limits
     const rateLimitCheck = this.checkRateLimit(userId);
     if (!rateLimitCheck.allowed) {
       return { shouldRespond: false, reason: 'rate_limited', cooldownRemaining: rateLimitCheck.cooldownRemaining };
     }
-    this.lastAnswered.set(sessionKey, now); // set cooldown
-    return { shouldRespond: true, reason: 'triggered_session_start' };
+
+    return { shouldRespond: true, reason: 'mention_create_thread' };
   }
 
   /**
-   * Check if channel is in approved list
+   * Create a thread for user conversation
    */
-  isApprovedChannel(channelName) {
-    return botRules.PUBLIC_CHANNELS.APPROVED_CHANNELS.includes(channelName);
-  }
-
-  /**
-   * Check if message has valid triggers
-   * Now supports botUserId for mention detection
-   */
-  checkTriggers(content, botUserId) {
-    console.log("--------checkTriggers", content, botUserId);
-    // Check for bot mention by user ID at the start of the message
-    if (botUserId && content.trim().startsWith(`<@${botUserId}>`)) {
-      console.log("triggered: true, trigger: 'mention'");
-      return { triggered: true, trigger: 'mention' };
+  async createUserThread(message, reason = 'AI Support', client = null) {
+    try {
+      const userId = message.author.id;
+      const channelId = message.channel.id;
+      const threadName = this._generateThreadName(message.content, message.author.username);
+      const thread = await message.startThread({
+        name: threadName,
+        autoArchiveDuration: this.THREAD_AUTO_ARCHIVE_DURATION,
+        reason: reason
+      });
+      // Store in Redis for persistence (allow multiple threads)
+      await redis.set(`publicthread:${userId}:${channelId}:${thread.id}`, 'active');
+      console.log(`📝 Created thread "${threadName}" (ID: ${thread.id}) for user ${message.author.username}`);
+      if (client) {
+        await this.logThreadCreation(
+          userId, 
+          message.author.username, 
+          threadName, 
+          thread.id, 
+          message.channel.name,
+          client
+        );
+      }
+      return thread;
+    } catch (error) {
+      console.error('Error creating thread:', error);
+      throw error;
     }
-    // Check for prefix command !help at the start
-    if (content.trim().toLowerCase().startsWith('!help')) {
-      return { triggered: true, trigger: 'prefix' };
-    }
-    // No other triggers allowed
-    return { triggered: false };
   }
 
   /**
-   * Check if message is in question form
+   * Check if user has an active (non-archived) thread
    */
-  isQuestion(content) {
-    if (content.includes('?')) return true;
+  async hasActiveThread(userId, channelId, client) {
+    const sessionKey = `${userId}:${channelId}`;
+    // Try Redis first
+    let threadId = await redis.get(`publicthread:${userId}:${channelId}:${threadId}`);
+    if (!threadId) {
+      // Fallback to in-memory (for legacy/transition)
+      threadId = this.userThreads.get(sessionKey);
+    }
     
-    const questionWords = botRules.PUBLIC_CHANNELS.TRIGGERS.QUESTION_WORDS;
-    const words = content.toLowerCase().split(' ');
+    if (!threadId) return false;
     
-    if (words.length > 0 && questionWords.includes(words[0])) {
+    try {
+      const thread = client.channels.cache.get(threadId);
+      if (thread && !thread.archived) {
+        // Sync in-memory for fast access
+        this.userThreads.set(sessionKey, threadId);
+        return true;
+      } else {
+        await this.cleanupUserSession(userId, channelId);
+        console.log(`🧹 Cleaned up closed/archived thread for user ${userId} in channel ${channelId}`);
+        return false;
+      }
+    } catch (error) {
+      await this.cleanupUserSession(userId, channelId);
+      console.log(`🧹 Cleaned up missing thread for user ${userId} in channel ${channelId}`);
+      return false;
+    }
+  }
+
+  /**
+   * Check if message is in the user's own thread
+   */
+  async isInUserThread(message) {
+    if (!message.channel.isThread()) return false;
+    const userId = message.author.id;
+    const parentChannelId = message.channel.parentId;
+    const threadId = message.channel.id;
+    // Check Redis for this thread
+    const exists = await redis.exists(`publicthread:${userId}:${parentChannelId}:${threadId}`);
+    return !!exists;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // ESCALATION SYSTEM - AI-powered human support detection
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Intelligent escalation detection with 3-layer approach
+   * Layer 1: Simple greetings → No escalation
+   * Layer 2: Explicit requests → Immediate escalation  
+   * Layer 3: Complex messages → AI analysis
+   */
+  async detectHumanHelpRequest(message, aiService) {
+    try {
+      const content = message.content.toLowerCase().trim();
+      const cleanContent = content.replace(/<@!?\d+>/g, '').trim(); // Remove mentions
+
+      // Layer 1: Skip simple greetings
+      if (this._isSimpleGreeting(cleanContent)) {
+        console.log(`🤖 Skipping escalation analysis for simple greeting: "${message.content}"`);
+        return false;
+      }
+
+      // Layer 2: Explicit human requests
+      if (this._hasExplicitHumanRequest(content)) {
+        console.log(`🤖 Explicit human request detected: "${message.content}"`);
+        return true;
+      }
+
+      // Layer 3: AI analysis for complex messages
+      if (this._shouldUseAIAnalysis(content)) {
+        return await this._performAIEscalationAnalysis(message, aiService);
+      }
+
+      console.log(`🤖 No escalation needed for: "${message.content}"`);
+      return false;
+
+    } catch (error) {
+      console.error('❌ Error detecting human help request:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Escalate user to human support
+   */
+  async escalateToHuman(message, client = null, targetChannel = null) {
+    const userId = message.author.id;
+    const channelId = message.channel.isThread() ? message.channel.parentId : message.channel.id;
+    const threadId = message.channel.isThread() ? message.channel.id : null;
+    
+    // Mark user as escalated per thread (not per channel)
+    const sessionKey = threadId ? `${userId}:${channelId}:${threadId}` : `${userId}:${channelId}`;
+    this.escalatedUsers.set(sessionKey, true);
+    
+    // Send support message to appropriate channel
+    const supportMessage = constants.MESSAGES.getFallbackResponse(constants.ROLES.SUPPORT_TEAM);
+    
+    if (targetChannel && targetChannel !== message.channel) {
+      // Send to specific target channel (e.g., user's thread)
+      await targetChannel.send(`<@${userId}> ${supportMessage}`);
+      console.log(`🚨 Escalated user ${message.author.username} to human support in thread: ${targetChannel.name}`);
+    } else {
+      // Fallback to replying to original message
+      await message.reply(supportMessage);
+      console.log(`🚨 Escalated user ${message.author.username} to human support in original channel`);
+    }
+
+    // Log escalation with structured format
+    if (client) {
+      const threadInfo = targetChannel && targetChannel !== message.channel ? {
+        name: targetChannel.name,
+        id: targetChannel.id
+      } : null;
+      
+      await this.logQuery(userId, message.author.username, message.content, supportMessage, null, client, threadInfo, true);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // UTILITY METHODS - Helper functions and validation
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Check if channel is approved for bot operation
+   */
+  isApprovedChannel(channelId, guildId) {
+    // Get server-specific configuration
+    const serverConfig = getServerConfig(guildId);
+    
+    // Use server-specific public channels if configured, otherwise fall back to global config
+    const approvedChannels = serverConfig?.publicChannels;
+    
+    return approvedChannels.includes(channelId);
+  }
+
+  /**
+   * Check if bot is mentioned anywhere in message
+   */
+  _isBotMentioned(content, botUserId) {
+    if (!botUserId) return false;
+    
+    // Check for direct bot mentions
+    const hasDirectMention = content.includes(`<@${botUserId}>`) || content.includes(`<@!${botUserId}>`);
+    
+    // Check for bot-related role mentions (common issue where users mention bot role instead of bot user)
+    const botRoleId = botRules.PUBLIC_CHANNELS.TRIGGERS.BOT_ROLE_ID;
+    const hasBotRoleMention = botRoleId && content.includes(`<@&${botRoleId}>`);
+    
+    return hasDirectMention || hasBotRoleMention;
+  }
+
+  /**
+   * Generate descriptive thread name from message content
+   */
+  _generateThreadName(content, username) {
+    let cleanContent = content
+      .replace(/<@!?\d+>/g, '') // Remove mentions
+      .replace(/!help/gi, '')   // Remove commands
+      .trim();
+    
+    const preview = cleanContent.length > 50 
+      ? cleanContent.substring(0, 50) + '...' 
+      : cleanContent;
+    
+    return `${username}: ${preview}` || `${username}'s Question`;
+  }
+
+  /**
+   * Check if thread likely belongs to user (fallback after restart)
+   */
+  _isLikelyUserThread(message, userId) {
+    const thread = message.channel;
+    const username = message.author.username;
+    
+    // Check thread name format: "username: message..."
+    if (thread.name.toLowerCase().startsWith(username.toLowerCase() + ':')) {
       return true;
     }
-
-    return questionWords.some(word => content.toLowerCase().includes(word));
+    
+    // Check thread owner
+    try {
+      return thread.ownerId === userId;
+    } catch (error) {
+      return false;
+    }
   }
 
   /**
-   * Check rate limits for a user
+   * Check if content is a simple greeting
+   */
+  _isSimpleGreeting(cleanContent) {
+    return this.SIMPLE_GREETINGS.includes(cleanContent) || cleanContent.length < this.SIMPLE_GREETING_MAX_LENGTH;
+  }
+
+  /**
+   * Check for explicit human support requests
+   */
+  _hasExplicitHumanRequest(content) {
+    return this.HUMAN_REQUEST_KEYWORDS.some(keyword => 
+      content.includes(keyword.toLowerCase())
+    );
+  }
+
+  /**
+   * Determine if message warrants AI escalation analysis
+   */
+  _shouldUseAIAnalysis(content) {
+    return content.length > this.COMPLEX_MESSAGE_MIN_LENGTH || 
+           content.includes('?') || 
+           content.includes('help') || 
+           content.includes('problem');
+  }
+
+  /**
+   * Perform AI-based escalation analysis
+   */
+  async _performAIEscalationAnalysis(message, aiService) {
+    const systemContent = buildHumanHelpPrompt();
+    const messages = [
+      { role: "system", content: systemContent },
+      { role: "user", content: message.content }
+    ];
+
+    const aiResponse = await aiService.generateResponse(messages);
+    
+    const isEscalation = aiResponse && 
+                        aiResponse.isValid && 
+                        aiResponse.response.includes(constants.MESSAGES.getFallbackResponse(constants.ROLES.SUPPORT_TEAM));
+    
+    console.log(`🤖 AI escalation analysis for "${message.content}": ${isEscalation ? 'ESCALATE' : 'CONTINUE'}`);
+    return isEscalation;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // SESSION MANAGEMENT - Cleanup and maintenance
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Clean up all tracking for a user session
+   */
+  async cleanupUserSession(userId, channelId) {
+    const sessionKey = `${userId}:${channelId}`;
+    
+    this.userThreads.delete(sessionKey);
+    await redis.del(`publicthread:${userId}:${channelId}:*`); // Clean up all thread keys for this user/channel
+    this.escalatedUsers.delete(sessionKey);
+    
+    console.log(`✨ Cleaned up complete session for user ${userId} in channel ${channelId}`);
+  }
+
+  /**
+   * Manual session reset (for moderators)
+   */
+  resetUserSession(userId, channelId) {
+    this.cleanupUserSession(userId, channelId);
+    console.log(`🔄 Manually reset session for user ${userId} in channel ${channelId}`);
+  }
+
+  /**
+   * Manual escalation reset (for moderators)
+   */
+  clearEscalation(userId, channelId) {
+    const sessionKey = `${userId}:${channelId}`;
+    this.escalatedUsers.delete(sessionKey);
+  }
+
+  /**
+   * Periodic cleanup of archived threads
+   */
+  cleanupArchivedThreads(client) {
+    for (const [sessionKey, threadId] of this.userThreads.entries()) {
+      try {
+        const thread = client.channels.cache.get(threadId);
+        if (!thread || thread.archived) {
+          const [userId, channelId] = sessionKey.split(':');
+          this.cleanupUserSession(userId, channelId);
+          console.log(`🧹 Cleaned up archived thread session: ${sessionKey}`);
+        }
+      } catch (error) {
+        const [userId, channelId] = sessionKey.split(':');
+        this.cleanupUserSession(userId, channelId);
+        console.log(`🧹 Cleaned up missing thread session: ${sessionKey}`);
+      }
+    }
+  }
+
+  /**
+   * Rebuild thread tracking after server restart
+   */
+  async rebuildThreadTracking(client) {
+    console.log('🔄 Rebuilding thread tracking after restart...');
+    
+    // Clear previous session data
+    this.escalatedUsers.clear();
+    console.log('✅ Cleared escalation states from previous session');
+    
+    let rebuiltCount = 0;
+    
+    // Scan for existing threads
+    for (const [channelId, channel] of client.channels.cache) {
+      if (channel.isThread() && channel.parent && !channel.archived) {
+        const isApprovedParent = this.isApprovedChannel(channel.parent.id, channel.guild.id);
+        if (!isApprovedParent) continue;
+        
+        try {
+          const threadName = channel.name;
+          const colonIndex = threadName.indexOf(':');
+          
+          if (colonIndex > 0) {
+            const possibleUsername = threadName.substring(0, colonIndex).trim();
+            const guild = channel.guild;
+            const member = guild.members.cache.find(m => 
+              m.user.username.toLowerCase() === possibleUsername.toLowerCase()
+            );
+            
+            if (member) {
+              const userId = member.user.id;
+              const parentChannelId = channel.parentId;
+              const sessionKey = `${userId}:${parentChannelId}`;
+              
+              this.userThreads.set(sessionKey, channel.id);
+              rebuiltCount++;
+              console.log(`🔗 Restored thread: ${threadName} -> ${member.user.username}`);
+            }
+          }
+        } catch (error) {
+          console.log(`⚠️ Could not rebuild tracking for thread: ${channel.name}`);
+        }
+      }
+    }
+    
+    console.log(`✅ Rebuilt tracking for ${rebuiltCount} threads`);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // RATE LIMITING - User interaction limits
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Check if user is within rate limits
    */
   checkRateLimit(userId) {
     const now = Date.now();
     const limits = botRules.PUBLIC_CHANNELS.RATE_LIMITS;
     
-    // Initialize user tracking if not exists
     if (!this.userRateLimits.has(userId)) {
       this.userRateLimits.set(userId, {
         queriesThisMinute: 0,
@@ -153,22 +504,18 @@ class PublicChannelService {
       return { allowed: false, cooldownRemaining };
     }
 
-    // Reset minute counter if a minute has passed
+    // Reset counters
     if (now - userData.lastQueryTime > 60000) {
       userData.queriesThisMinute = 0;
     }
-
-    // Reset hour counter if an hour has passed
     if (now - userData.lastQueryTime > 3600000) {
       userData.queriesThisHour = 0;
     }
 
-    // Check minute limit
+    // Check limits
     if (userData.queriesThisMinute >= limits.MAX_QUERIES_PER_MINUTE) {
       return { allowed: false, reason: 'minute_limit_exceeded' };
     }
-
-    // Check hour limit
     if (userData.queriesThisHour >= limits.MAX_QUERIES_PER_HOUR) {
       return { allowed: false, reason: 'hour_limit_exceeded' };
     }
@@ -181,8 +528,12 @@ class PublicChannelService {
     return { allowed: true };
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // LEGACY METHODS - Kept for compatibility
+  // ═══════════════════════════════════════════════════════════════════════════════
+
   /**
-   * Check if message contains escalation phrases
+   * Check if message contains escalation phrases (legacy)
    */
   hasEscalationPhrase(content) {
     const lowerContent = content.toLowerCase();
@@ -192,7 +543,7 @@ class PublicChannelService {
   }
 
   /**
-   * Handle escalation request
+   * Handle escalation request (legacy)
    */
   async handleEscalation(message) {
     const escalationMessage = botRules.PUBLIC_CHANNELS.ESCALATION_MESSAGE
@@ -215,10 +566,9 @@ class PublicChannelService {
   }
 
   /**
-   * Log query for monitoring
-   * Now sends to #logging-public channel if client is provided
+   * Log query for monitoring (structured like ticket logging)
    */
-  async logQuery(userId, username, question, response, confidence = null, client = null) {
+  async logQuery(userId, username, question, response, confidence = null, client = null, threadInfo = null, escalation = false) {
     const logData = {
       timestamp: new Date().toISOString(),
       userId: this.anonymizeUserId(userId),
@@ -227,22 +577,161 @@ class PublicChannelService {
       question: this.sanitizeContent(question),
       response: this.sanitizeContent(response),
       confidence,
-      type: 'query'
+      type: escalation ? 'escalation' : 'query',
+      threadInfo
     };
 
-    // Send to Discord log channel if client is provided
     if (client) {
-      // Try to find the channel by name
       const logChannel = client.channels.cache.find(
         ch => ch.name === botRules.LOGGING.PUBLIC_LOGS_CHANNEL
       );
       if (logChannel) {
-        logChannel.send(
-          `📝 **Query Log**\nUser name: ${logData.username}\nQ: ${logData.question}\nA: ${logData.response}\nConfidence: ${confidence !== null ? confidence : 'N/A'}\nTime: ${logData.timestamp}`
-        );
+        await this.sendStructuredLog(logChannel, logData, escalation);
       }
     }
     return logData;
+  }
+
+  /**
+   * Send structured embed log (matching ticket logging format)
+   */
+  async sendStructuredLog(logChannel, logData, escalation = false) {
+    try {
+      const timestamp = this.formatTimestamp();
+      
+      // Color coding like ticket system
+      let color, title, titleIcon;
+      if (escalation) {
+        color = 0xFF6B6B; // Red for escalation
+        title = '🚨 Public Channel Escalation';
+        titleIcon = '🚨';
+      } else if (logData.confidence !== null && logData.confidence < 0.7) {
+        color = 0xFFA726; // Orange for low confidence
+        title = '⚠️ Public Channel Interaction (Low Confidence)';
+        titleIcon = '⚠️';
+      } else {
+        color = 0x4ECDC4; // Green for normal interaction
+        title = '💬 Public Channel Interaction';
+        titleIcon = '💬';
+      }
+
+      const logEmbed = {
+        color: color,
+        title: title,
+        fields: [
+          {
+            name: '📅 Timestamp',
+            value: timestamp,
+            inline: true
+          },
+          {
+            name: '👤 User',
+            value: `${logData.username} (${logData.userId})`,
+            inline: true
+          },
+          {
+            name: '🧵 Thread Info',
+            value: logData.threadInfo ? `${logData.threadInfo.name} (${logData.threadInfo.id})` : 'Main Channel',
+            inline: true
+          },
+          {
+            name: '❓ Question',
+            value: logData.question.length > 1024 ? logData.question.substring(0, 1021) + '...' : logData.question,
+            inline: false
+          },
+          {
+            name: '🤖 Bot Response',
+            value: logData.response.length > 1024 ? logData.response.substring(0, 1021) + '...' : logData.response,
+            inline: false
+          }
+        ],
+        footer: {
+          text: escalation ? `Escalation - Thread: ${logData.threadInfo?.id || 'N/A'}` : `Public Query - Confidence: ${logData.confidence !== null ? logData.confidence.toFixed(2) : 'N/A'}`
+        },
+        timestamp: new Date()
+      };
+
+      // Add confidence field for non-escalation logs
+      if (!escalation && logData.confidence !== null) {
+        logEmbed.fields.splice(3, 0, {
+          name: '📊 AI Confidence',
+          value: `${(logData.confidence * 100).toFixed(1)}%`,
+          inline: true
+        });
+      }
+
+      await logChannel.send({ embeds: [logEmbed] });
+      console.log(`📝 Logged ${escalation ? 'escalation' : 'interaction'}: ${logData.username} (${logData.type})`);
+      
+    } catch (error) {
+      console.error('❌ Error sending structured log:', error);
+      // Fallback to simple text log
+      await logChannel.send(
+        `📝 **${escalation ? 'Escalation' : 'Query'} Log** (Fallback)\nUser: ${logData.username}\nQ: ${logData.question}\nA: ${logData.response}\nTime: ${logData.timestamp}`
+      );
+    }
+  }
+
+  /**
+   * Log thread creation event
+   */
+  async logThreadCreation(userId, username, threadName, threadId, parentChannelName, client = null) {
+    if (!client) return;
+
+    const logChannel = client.channels.cache.find(
+      ch => ch.name === botRules.LOGGING.PUBLIC_LOGS_CHANNEL
+    );
+    
+    if (logChannel) {
+      try {
+        const timestamp = this.formatTimestamp();
+        
+        const logEmbed = {
+          color: 0x4CAF50, // Green
+          title: '🧵 Public Thread Created',
+          fields: [
+            {
+              name: '📅 Timestamp',
+              value: timestamp,
+              inline: true
+            },
+            {
+              name: '👤 User',
+              value: `${username} (${this.anonymizeUserId(userId)})`,
+              inline: true
+            },
+            {
+              name: '📍 Parent Channel',
+              value: parentChannelName,
+              inline: true
+            },
+            {
+              name: '🧵 Thread Name',
+              value: threadName,
+              inline: false
+            }
+          ],
+          footer: {
+            text: `Thread ID: ${threadId}`
+          },
+          timestamp: new Date()
+        };
+
+        await logChannel.send({ embeds: [logEmbed] });
+        console.log(`📝 Logged thread creation: ${threadName} for ${username}`);
+        
+      } catch (error) {
+        console.error('❌ Error logging thread creation:', error);
+      }
+    }
+  }
+
+  /**
+   * Format timestamp like ticket logging
+   */
+  formatTimestamp() {
+    const now = new Date();
+    return `<t:${Math.floor(now.getTime() / 1000)}:F>`;
   }
 
   /**
@@ -252,7 +741,6 @@ class PublicChannelService {
     if (!botRules.LOGGING.PRIVACY.ANONYMIZE_USER_IDS) {
       return userId;
     }
-    // Simple hash for demo - in production use proper hashing
     return `user_${userId.slice(-6)}`;
   }
 
@@ -263,12 +751,10 @@ class PublicChannelService {
     let sanitized = content;
     
     if (!botRules.LOGGING.PRIVACY.STORE_EMAILS) {
-      // Remove email patterns
       sanitized = sanitized.replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g, '[EMAIL]');
     }
     
     if (!botRules.LOGGING.PRIVACY.STORE_REAL_NAMES) {
-      // Simple name detection - in production use more sophisticated detection
       sanitized = sanitized.replace(/\b[A-Z][a-z]+ [A-Z][a-z]+\b/g, '[NAME]');
     }
     
@@ -282,16 +768,36 @@ class PublicChannelService {
     return botRules.BOT_IDENTITY;
   }
 
+  /**
+   * Get friendly prompt for triggered messages
+   */
   getFriendlyPrompt() {
     return "Hi! How can I help you today? Please ask your question.";
   }
 
-  /**
-   * Manual reset of escalation for a user/channel (e.g., by a moderator)
-   */
-  clearEscalation(userId, channelId) {
-    const sessionKey = `${userId}:${channelId}`;
-    this.escalatedUsers.delete(sessionKey);
+  // Helper to generate a unique conversation key per thread
+  getThreadConversationKey(message) {
+    const userId = message.author.id;
+    const parentChannelId = message.channel.parentId;
+    const threadId = message.channel.id;
+    return `user_${userId}:${parentChannelId}:${threadId}`;
+  }
+
+  // Example usage in your thread message handler (update all relevant places):
+  async handleThreadMessage(message, aiService, conversationService) {
+    const conversationKey = this.getThreadConversationKey(message);
+    // Initialize conversation for this thread if needed
+    await conversationService.initializeConversation(conversationKey, null, false);
+    // Add user message
+    conversationService.addUserMessage(conversationKey, message.content, false);
+    // Get conversation history for this thread
+    const conversationHistory = conversationService.getConversationHistory(conversationKey, false);
+    // Generate AI response
+    const aiResponse = await aiService.generateResponse(conversationHistory);
+    // Add assistant message
+    conversationService.addAssistantMessage(conversationKey, aiResponse.response, false);
+    // Reply in thread
+    await message.reply(aiResponse.response);
   }
 }
 

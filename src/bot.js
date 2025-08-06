@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { Client, GatewayIntentBits, ChannelType } from "discord.js";
-import { getServerFallbackResponse } from './config/serverConfigs.js';
+import { getServerFallbackResponse, getServerConfig } from './config/serverConfigs.js';
 
 // Import services
 import ArticleService from "./services/ArticleService.js";
@@ -11,6 +11,8 @@ import TicketSelectionService from './services/TicketSelectionService.js';
 import LoggingService from './services/LoggingService.js';
 import PublicChannelService from './services/PublicChannelService.js';
 import ChannelService from './services/ChannelService.js';
+import PublicArticleService from "./services/PublicArticleService.js";
+import PublicContentManager from "./services/PublicContentManager.js";
 
 // Import handlers
 import TicketButtonHandler from './services/TicketButtonHandler.js';
@@ -23,14 +25,25 @@ import commands from './commands/index.js';
 import constants from "./config/constants.js";
 import botRules from "./config/botRules.js";
 
-// Initialize services
+// ═══════════════════════════════════════════════════════════════════════════════
+// SERVICE INITIALIZATION
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Core services
 const articleService = new ArticleService();
-const conversationService = new ConversationService(articleService);
 const aiService = new AIService();
+const channelService = new ChannelService();
+
+// Ticket system services
 const ticketSelectionService = new TicketSelectionService();
 const ticketChannelService = new TicketChannelService(ticketSelectionService, articleService, aiService);
+const conversationService = new ConversationService(articleService);
+
+// Public channel services
+const publicArticleService = new PublicArticleService();
 const publicChannelService = new PublicChannelService();
-const channelService = new ChannelService();
+const publicConversationService = new ConversationService(publicArticleService);
+const publicContentManager = new PublicContentManager();
 
 // Create Discord client
 const client = new Client({
@@ -38,188 +51,562 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildModeration, // For thread management
   ],
 });
 
-// Initialize handlers and logging service after client is ready
+// Initialize handlers after client is ready
 let ticketButtonHandler;
 let ticketChannelManager;
 let loggingService;
 
 client.once("ready", async () => {
   console.log(constants.MESSAGES.BOT_READY, client.user.tag);
-  
+
   // Initialize logging service
   loggingService = new LoggingService(client);
-  
-  // Initialize handlers
+
+  // Initialize ticket system handlers
   ticketButtonHandler = new TicketButtonHandler(ticketSelectionService, articleService, conversationService, loggingService);
   ticketChannelManager = new TicketChannelManager(ticketSelectionService, loggingService);
-  
-  // Set up service dependencies
+
+  // Set up ticket service dependencies
   ticketChannelService.setServices(conversationService, aiService);
   ticketChannelService.setLoggingService(loggingService);
-  
-  // Set bot activity
+
+  // Set bot status and activity
   client.user.setActivity(constants.BOT_CONFIG.ACTIVITY_NAME, {
     type: constants.BOT_CONFIG.ACTIVITY_TYPE,
   });
-  
-  // Set bot status
   client.user.setStatus(constants.BOT_CONFIG.STATUS);
-  // Initialize article service
-  // articleService.initialize().then(() => {
-  //   console.log(constants.MESSAGES.ARTICLES_LOADED);
-  // }).catch(() => {
-  //   console.log(constants.MESSAGES.ARTICLES_FAILED);
-  // });
+
+  // Initialize article services
+  await initializeServices();
+
+  // Set up periodic maintenance
+  setupPeriodicMaintenance();
 });
+
+/**
+ * Initialize all article services
+ */
+async function initializeServices() {
+  try {
+    // Initialize public articles
+    await publicArticleService.initialize();
+
+    // Log initialization status
+    const status = publicArticleService.getInitializationStatus();
+    console.log("✅ Public articles loaded successfully");
+    console.log(`📊 PublicArticleService Status:`, status);
+
+    // Rebuild thread tracking after restart
+    await publicChannelService.rebuildThreadTracking(client);
+    console.log("✅ Thread tracking rebuilt successfully");
+
+  } catch (error) {
+    console.error("❌ Error initializing services:", error);
+  }
+}
+
+/**
+ * Set up periodic maintenance tasks
+ */
+function setupPeriodicMaintenance() {
+  // Clean up archived threads every 30 minutes
+  setInterval(() => {
+    publicChannelService.cleanupArchivedThreads(client);
+  }, 30 * 60 * 1000);
+
+  console.log("✅ Periodic maintenance tasks scheduled");
+}
 
 // Register slash commands when bot is ready
 client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
-  
+
   try {
-    // Register commands globally
     const commandData = Array.from(commands.values()).map(command => command.data);
     await client.application.commands.set(commandData);
-    console.log('Slash commands registered successfully');
+    console.log('✅ Slash commands registered successfully');
   } catch (error) {
-    console.error('Error registering slash commands:', error);
+    console.error('❌ Error registering slash commands:', error);
   }
 });
 
-// Main message handler - handles both ticket and public channels
+// ═══════════════════════════════════════════════════════════════════════════════
+// MESSAGE HANDLING
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Main message handler - routes messages to appropriate handlers
+ */
 client.on("messageCreate", async (message) => {
-  // Ignore messages from bots
+  // Ignore bot messages
   if (message.author.bot) return;
-  // Handle ticket channels
-  if (ticketChannelService.isTicketChannel(message.channel)) {
-    await ticketChannelService.handleMessage(message);
-    return;
-  }
-  // Handle public channels
-  const channelInfo = channelService.getChannelInfo(message);
-  const isPublicChannel = botRules.PUBLIC_CHANNELS.APPROVED_CHANNELS.includes(channelInfo.channelName);
-  if (isPublicChannel && botRules.DEVELOPER_CONTROLS.ENABLE_PUBLIC_CHANNELS) {
-    // --- Trigger Conditions ---
-    const publicChannelCheck = publicChannelService.shouldRespond(message, client.user.id);
-    if (publicChannelCheck.shouldRespond) {
-      await handlePublicChannelMessage(message, publicChannelService);
-    } else if (publicChannelCheck.escalateNow) {
-      await publicChannelService.handleEscalation(message);
-    } else if (publicChannelCheck.reason === 'escalated') {
-      // Do nothing: user is escalated in this channel
-    } else if (publicChannelCheck.reason === 'trigger_no_question' && publicChannelCheck.triggered) {
-      message.reply(publicChannelService.getFriendlyPrompt());
-    }
-    // Otherwise, do nothing (silent)
-    return;
-  }
 
-  // Not a public or ticket channel: do nothing (silent)
-  return;
-});
-
-
-// --- Handler for public channel messages ---
-async function handlePublicChannelMessage(message, publicChannelService) {
-  const userId = message.author.id;
-  const username = message.author.username; 
-  let typingInterval;
   try {
-    typingInterval = setInterval(() => message.channel.sendTyping(), 5000);
-    message.channel.sendTyping();
-    await conversationService.initializeConversation(userId, null, true);
-    conversationService.addUserMessage(userId, message.content, true);
-    const conversationHistory = conversationService.getConversationHistory(userId, true);
-    console.log("----conversationHistory----", conversationHistory);
-    const aiResponse = await aiService.generateResponse(conversationHistory, message.guild.id);
-    console.log("----aiResponse----", aiResponse);
-    if (typingInterval) clearInterval(typingInterval);
-    // --- Confidence Threshold ---
-    if (aiResponse.confidence && aiResponse.confidence < botRules.PUBLIC_CHANNELS.CONFIDENCE_THRESHOLD) {
-      const lowConfidenceResponse = publicChannelService.getLowConfidenceResponse();
-      const escalationRole = botRules.PUBLIC_CHANNELS.ESCALATION_ROLE || '';
-      await message.reply(`${lowConfidenceResponse}\n${escalationRole}`);
-      await publicChannelService.logQuery(userId, username, message.content, lowConfidenceResponse, aiResponse.confidence, client);
+    // Route to ticket system
+    if (ticketChannelService.isTicketChannel(message.channel)) {
+      await ticketChannelService.handleMessage(message);
       return;
     }
-    if (aiResponse.isValid) {
-      message.reply(aiResponse.response);
-      conversationService.addAssistantMessage(userId, aiResponse.response, true);
-      await publicChannelService.logQuery(userId, username, message.content, aiResponse.response, aiResponse.confidence, client);
-    } else {
-      message.reply(aiResponse.response);
-      await publicChannelService.logQuery(userId, username, message.content, aiResponse.response, null, client);
+
+    // Route to public channel system
+    if (isPublicChannelMessage(message)) {
+      await handlePublicChannelFlow(message);
+      return;
     }
-  } catch (err) {
-    if (typingInterval) clearInterval(typingInterval);
-    console.error("Error processing public channel message:", err.message);
-    message.reply(getServerFallbackResponse(message.guild.id));
+
+    // Message not in any configured channel - ignore silently
+  } catch (error) {
+    console.error("❌ Error handling message:", error);
+  }
+});
+
+/**
+ * Check if message is in a public channel or thread
+ */
+function isPublicChannelMessage(message) {
+  if (!botRules.DEVELOPER_CONTROLS.ENABLE_PUBLIC_CHANNELS) {
+    return false;
+  }
+
+  const channelInfo = channelService.getChannelInfo(message);
+  
+  // Get server-specific configuration
+  const serverConfig = getServerConfig(message.guild.id);
+  
+  // Use server-specific public channels if configured, otherwise fall back to global config
+  const approvedChannels = serverConfig?.publicChannels;
+
+  // Direct public channel message
+  const isPublicChannel = approvedChannels.includes(channelInfo.channelId);
+
+  // Message in thread of public channel
+  const isInPublicThread = message.channel.isThread() &&
+    message.channel.parent &&
+    approvedChannels.includes(message.channel.parent.id);
+
+  return isPublicChannel || isInPublicThread;
+}
+
+/**
+ * Handle the complete public channel message flow
+ */
+async function handlePublicChannelFlow(message) {
+  try {
+    // Check if bot should respond
+    const responseCheck = await publicChannelService.shouldRespond(message, client.user.id, client);
+
+    if (!responseCheck.shouldRespond) {
+      handleNonResponseCase(responseCheck.reason, message);
+      return;
+    }
+
+    // Process the message
+    await processPublicChannelMessage(message);
+
+  } catch (error) {
+    console.error("❌ Error in public channel flow:", error);
+    await sendErrorResponse(message, error);
   }
 }
 
-// Handle interactions
-client.on('interactionCreate', async interaction => {
-  // Handle slash commands
-  if (interaction.isChatInputCommand()) {
-    const command = commands.get(interaction.commandName);
-    
-    if (!command) {
-      console.error(`No command matching ${interaction.commandName} was found.`);
+/**
+ * Handle cases where bot doesn't respond
+ */
+function handleNonResponseCase(reason, message) {
+  switch (reason) {
+    case 'escalated':
+      // User is escalated - silent ignore
+      console.log(`🚫 Ignoring message from escalated user: ${message.author.username}`);
+      break;
+    case 'has_active_thread':
+      // User should use their existing thread - silent ignore
+      console.log(`🧵 User ${message.author.username} has active thread, ignoring main channel message`);
+      break;
+    case 'rate_limited':
+      // Rate limited - could optionally notify user
+      console.log(`⏱️ Rate limited user: ${message.author.username}`);
+      break;
+    default:
+      // Other reasons (no mention, channel not approved, etc.) - silent ignore
+      break;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PUBLIC CHANNEL MESSAGE PROCESSING
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Process a public channel message through the complete AI flow
+ */
+async function processPublicChannelMessage(message) {
+  const context = createMessageContext(message);
+
+  try {
+    // Step 1: Set up conversation channel (thread or main)
+    await setupConversationChannel(context);
+
+    // Step 2: Check for human escalation request
+    if (await checkForEscalation(context)) {
+      return; // Escalation handled, stop processing
+    }
+
+    // Step 3: Generate AI response
+    await generateAIResponse(context);
+
+  } catch (error) {
+    await handleProcessingError(context, error);
+  } finally {
+    if (context.typingInterval) {
+      clearInterval(context.typingInterval);
+    }
+  }
+}
+
+/**
+ * Create message processing context
+ */
+function createMessageContext(message) {
+  return {
+    message,
+    userId: message.author.id,
+    username: message.author.username,
+    isInMainChannel: !message.channel.isThread(),
+    targetChannel: message.channel,
+    typingInterval: null,
+  };
+}
+
+/**
+ * Set up the conversation channel (create thread if needed)
+ */
+async function setupConversationChannel(context) {
+  if (context.isInMainChannel) {
+    try {
+      const thread = await publicChannelService.createUserThread(
+        context.message,
+        'AI Support Conversation',
+        client
+      );
+      context.targetChannel = thread;
+      console.log(`🧵 Created thread for ${context.username}: ${thread.name}`);
+    } catch (error) {
+      console.error('⚠️ Failed to create thread, using direct reply:', error);
+      // targetChannel remains as message.channel (fallback)
+    }
+  }
+
+  // Start typing indicator
+  context.typingInterval = setInterval(() => context.targetChannel.sendTyping(), 5000);
+  context.targetChannel.sendTyping();
+}
+
+/**
+ * Check for human escalation request
+ */
+async function checkForEscalation(context) {
+  const needsEscalation = await publicChannelService.detectHumanHelpRequest(
+    context.message,
+    aiService
+  );
+
+  if (needsEscalation) {
+    // Send escalation to appropriate channel (thread if available, otherwise main channel)
+    await publicChannelService.escalateToHuman(context.message, client, context.targetChannel);
+    console.log(`🚨 Escalated ${context.username} to human support in ${context.targetChannel.name || 'main channel'}`);
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Generate and send AI response
+ */
+async function generateAIResponse(context) {
+  // Generate thread-specific conversation key
+  const conversationKey = getConversationKey(context.message);
+
+  try {
+    // Check if PublicArticleService is properly initialized
+    if (!publicArticleService.isInitialized()) {
+      console.log("[PublicArticleService] Service not fully initialized, using fallback");
+      // Use fallback system prompt
+      await publicConversationService.initializeConversation(conversationKey, null, false);
+      publicConversationService.addUserMessage(conversationKey, context.message.content, false);
+
+      const conversationHistory = publicConversationService.getConversationHistory(conversationKey, false);
+      const aiResponse = await aiService.generateResponse(conversationHistory);
+
+      if (context.typingInterval) {
+        clearInterval(context.typingInterval);
+        context.typingInterval = null;
+      }
+
+      if (isLowConfidenceResponse(aiResponse)) {
+        await handleLowConfidenceResponse(context, aiResponse);
+      } else {
+        await handleNormalResponse(context, aiResponse);
+      }
       return;
     }
 
-    try {
-      await command.execute(interaction, ticketSelectionService);
-    } catch (error) {
-      console.error(`Error executing ${interaction.commandName}:`, error);
-      const errorMessage = 'There was an error while executing this command!';
-      
-      if (interaction.replied || interaction.deferred) {
-        await interaction.followUp({ content: errorMessage, ephemeral: true });
-      } else {
-        await interaction.reply({ content: errorMessage, ephemeral: true });
-      }
+    // Get relevant content for the user's query
+    const relevantContent = await publicArticleService.getRelevantContent(context.message.content);
+
+    // Create enhanced system prompt with query-specific content
+    const enhancedSystemPrompt = publicContentManager.createEnhancedSystemPrompt(
+      context.message.content,
+      relevantContent
+    );
+
+    // Initialize conversation with enhanced system prompt
+    await publicConversationService.initializeConversation(conversationKey, enhancedSystemPrompt, false);
+    publicConversationService.addUserMessage(conversationKey, context.message.content, false);
+
+    // Get conversation history and generate response
+    const conversationHistory = publicConversationService.getConversationHistory(conversationKey, false);
+    const aiResponse = await aiService.generateResponse(conversationHistory);
+
+    // Stop typing
+    if (context.typingInterval) {
+      clearInterval(context.typingInterval);
+      context.typingInterval = null;
     }
+
+    // Handle response based on confidence
+    if (isLowConfidenceResponse(aiResponse)) {
+      await handleLowConfidenceResponse(context, aiResponse);
+    } else {
+      await handleNormalResponse(context, aiResponse);
+    }
+
+  } catch (error) {
+    console.error("❌ Error generating AI response:", error);
+    // Fallback to original method if enhanced system fails
+    await publicConversationService.initializeConversation(conversationKey, null, false, context.message.content);
+    publicConversationService.addUserMessage(conversationKey, context.message.content, false);
+
+    const conversationHistory = publicConversationService.getConversationHistory(conversationKey, false);
+    const aiResponse = await aiService.generateResponse(conversationHistory);
+
+    if (context.typingInterval) {
+      clearInterval(context.typingInterval);
+      context.typingInterval = null;
+    }
+
+    if (isLowConfidenceResponse(aiResponse)) {
+      await handleLowConfidenceResponse(context, aiResponse);
+    } else {
+      await handleNormalResponse(context, aiResponse);
+    }
+  }
+}
+
+/**
+ * Generate conversation key based on message context
+ */
+function getConversationKey(message) {
+  const userId = message.author.id;
+
+  if (message.channel.isThread()) {
+    const parentChannelId = message.channel.parentId;
+    const threadId = message.channel.id;
+    return `user_${userId}:${parentChannelId}:${threadId}`;
+  } else {
+    return `user_${userId}`;
+  }
+}
+
+/**
+ * Check if AI response has low confidence
+ */
+function isLowConfidenceResponse(aiResponse) {
+  return aiResponse.confidence &&
+         aiResponse.confidence < botRules.PUBLIC_CHANNELS.CONFIDENCE_THRESHOLD;
+}
+
+/**
+ * Handle low confidence AI response
+ */
+async function handleLowConfidenceResponse(context, aiResponse) {
+  const lowConfidenceResponse = publicChannelService.getLowConfidenceResponse();
+  const escalationRole = botRules.PUBLIC_CHANNELS.ESCALATION_ROLE || '';
+  const fullResponse = `${lowConfidenceResponse}\n${escalationRole}`;
+
+  await sendResponse(context, fullResponse);
+  await logInteraction(context, lowConfidenceResponse, aiResponse.confidence);
+}
+
+/**
+ * Handle normal AI response
+ */
+async function handleNormalResponse(context, aiResponse) {
+  const responseText = aiResponse.isValid ? aiResponse.response : aiResponse.response;
+
+  await sendResponse(context, responseText);
+
+  // Add to conversation history if valid
+  if (aiResponse.isValid) {
+    const conversationKey = getConversationKey(context.message);
+    publicConversationService.addAssistantMessage(conversationKey, aiResponse.response, false);
+  }
+
+  await logInteraction(context, responseText, aiResponse.confidence);
+}
+
+/**
+ * Send response to appropriate channel
+ */
+async function sendResponse(context, responseText) {
+  if (context.targetChannel === context.message.channel) {
+    await context.message.reply(responseText);
+  } else {
+    await context.targetChannel.send(`<@${context.userId}> ${responseText}`);
+  }
+}
+
+/**
+ * Log interaction for monitoring
+ */
+async function logInteraction(context, response, confidence) {
+  // Create thread info if not in main channel
+  const threadInfo = context.targetChannel !== context.message.channel ? {
+    name: context.targetChannel.name,
+    id: context.targetChannel.id
+  } : null;
+
+  await publicChannelService.logQuery(
+    context.userId,
+    context.username,
+    context.message.content,
+    response,
+    confidence,
+    client,
+    threadInfo,
+    false // Not an escalation
+  );
+}
+
+/**
+ * Handle processing errors
+ */
+async function handleProcessingError(context, error) {
+  console.error("❌ Error processing public channel message:", error.message);
+
+  const fallbackResponse = constants.MESSAGES.getFallbackResponse(constants.ROLES.SUPPORT_TEAM);
+  await sendResponse(context, fallbackResponse);
+}
+
+/**
+ * Send error response for unhandled errors
+ */
+async function sendErrorResponse(message, error) {
+  try {
+    const errorResponse = "Sorry, I encountered an error. Please try again or contact support.";
+    await message.reply(errorResponse);
+  } catch (replyError) {
+    console.error("❌ Failed to send error response:", replyError);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INTERACTION HANDLING
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Handle Discord interactions (slash commands and buttons)
+ */
+client.on('interactionCreate', async interaction => {
+  try {
+    if (interaction.isChatInputCommand()) {
+      await handleSlashCommand(interaction);
+    } else if (interaction.isButton()) {
+      await handleButtonInteraction(interaction);
+    }
+  } catch (error) {
+    console.error('❌ Error handling interaction:', error);
+    await handleInteractionError(interaction, error);
+  }
+});
+
+/**
+ * Handle slash command interactions
+ */
+async function handleSlashCommand(interaction) {
+  const command = commands.get(interaction.commandName);
+
+  if (!command) {
+    console.error(`❌ Unknown command: ${interaction.commandName}`);
     return;
   }
 
-  // Handle button interactions - only for ticket channels
-  if (interaction.isButton()) {
-    // Only handle buttons in ticket channels
-    if (ticketChannelService.isTicketChannel(interaction.channel)) {
-      await ticketButtonHandler.handleButtonInteraction(interaction);
-      return;
+  await command.execute(interaction, ticketSelectionService);
+}
+
+/**
+ * Handle button interactions (ticket system only)
+ */
+async function handleButtonInteraction(interaction) {
+  // Only handle buttons in ticket channels
+  if (ticketChannelService.isTicketChannel(interaction.channel)) {
+    await ticketButtonHandler.handleButtonInteraction(interaction);
+  } else {
+    console.log(`🔘 Button interaction in non-ticket channel ignored: ${interaction.customId}`);
+  }
+}
+
+/**
+ * Handle interaction errors
+ */
+async function handleInteractionError(interaction, error) {
+  const errorMessage = 'There was an error while executing this command!';
+
+  try {
+    if (interaction.replied || interaction.deferred) {
+      await interaction.followUp({ content: errorMessage, ephemeral: true });
+    } else {
+      await interaction.reply({ content: errorMessage, ephemeral: true });
     }
-    
-    // Ignore button interactions in non-ticket channels for now
-    console.log('Button interaction in non-ticket channel ignored:', interaction.customId);
+  } catch (followupError) {
+    console.error('❌ Failed to send error response:', followupError);
   }
-});
+}
 
-// Handle channel creation - only for ticket channels
-// client.on("channelCreate", async (channel) => {
-//   // Only handle text channels
-//   if (channel.type !== ChannelType.GuildText) return;
-  
-//   await ticketChannelManager.handleChannelCreation(channel);
-// });
+// ═══════════════════════════════════════════════════════════════════════════════
+// CHANNEL EVENT HANDLING
+// ═══════════════════════════════════════════════════════════════════════════════
 
-// Handle thread creation - only for ticket threads in the support ticket channel
+/**
+ * Handle thread creation (ticket system only)
+ */
 client.on("threadCreate", async (thread) => {
-  // Only handle threads whose parent is the support ticket channel
-  if (ticketChannelService.isTicketChannel(thread)) {
-    await ticketChannelManager.handleChannelCreation(thread);
+  try {
+    if (ticketChannelService.isTicketChannel(thread)) {
+      await ticketChannelManager.handleChannelCreation(thread);
+    }
+  } catch (error) {
+    console.error('❌ Error handling thread creation:', error);
   }
 });
 
-// Handle channel deletion - only for ticket channels
+/**
+ * Handle channel deletion (ticket system only)
+ */
 client.on('channelDelete', async (channel) => {
-  await ticketChannelManager.handleChannelDeletion(channel);
+  try {
+    await ticketChannelManager.handleChannelDeletion(channel);
+  } catch (error) {
+    console.error('❌ Error handling channel deletion:', error);
+  }
 });
 
-// Login
-client.login(process.env.DISCORD_TOKEN);
+// ═══════════════════════════════════════════════════════════════════════════════
+// BOT LOGIN
+// ═══════════════════════════════════════════════════════════════════════════════
 
+client.login(process.env.DISCORD_TOKEN);
