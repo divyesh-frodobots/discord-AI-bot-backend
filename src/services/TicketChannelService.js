@@ -133,7 +133,7 @@ class TicketChannelService {
           return; // Never let general AI reply in Order Status category
         }
         // If no shopify response, prompt for both fields
-        await message.reply({ content: 'Please provide BOTH your order number (e.g., #1734) and the email used for the purchase.', flags: ['SuppressEmbeds'] });
+        await message.reply({ content: 'Please provide BOTH your order number (e.g., #1234) and the email used for the purchase.', flags: ['SuppressEmbeds'] });
         return;
       } catch (e) {
         console.error('❌ Order Status handling failed:', e.message);

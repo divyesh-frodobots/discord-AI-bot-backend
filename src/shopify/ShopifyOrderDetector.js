@@ -19,7 +19,7 @@ class ShopifyOrderDetector {
 
     // Order number patterns (4+ digits, often with #)
     this.ORDER_PATTERNS = [
-      /#?\d{4,}/g,           // #1734 or 1734
+      /#?\d{4,}/g,           // #1234 or 1234
       /order\s*#?\s*\d+/gi,  // "order #1234" or "order 1234"
     ];
 

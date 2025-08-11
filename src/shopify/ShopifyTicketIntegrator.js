@@ -103,13 +103,15 @@ class ShopifyTicketIntegrator {
       type: 'shopify_escalation',
       content: `👨‍💼 **Customer Support Needed**
 
-I see you have a follow-up question about ${orderNumber}. Our customer support team will help you with this!
+I see you have a follow-up question regarding order **#${orderNumber}**. Our customer support team will help you with this!
 
-${supportTags} **Order Follow-up Request**
+**Support Hours:** Mon-Fri, 10am-6pm SGT.
+
+${supportTags} Order Follow-up Request
 📦 **Order:** ${orderNumber}
 📧 **Customer:** ${ticketState.lastOrderEmail || 'Not specified'}
 
-Our team will respond shortly! 🚀`,
+Our team will get back to you soon! 🚀`,
       shouldContinueToAI: false,
       escalateToSupport: true
     };
@@ -214,17 +216,17 @@ Please try again or contact our support team.`
     const items = this._formatLineItems(order.line_items || []);
     const shipping = this._formatShippingInfo(order);
 
-    let content = `✅ **Order ${orderNumber} Details**
+    let content = `**Order ${orderNumber} Details**
 
-📊 **Status:** ${status}
-💰 **Total:** ${order.currency || 'USD'} ${order.current_total_price || order.total_price || '0.00'}
-📅 **Placed:** ${this._formatDate(order.created_at)}
+**Status:** ${status}
+**Total:** ${order.currency || 'USD'} ${order.current_total_price || order.total_price || '0.00'}
+**Placed:** ${this._formatDate(order.created_at)}
 
-📦 **Items:**
+**Items:**
 ${items}`;
 
     if (shipping) {
-      content += `\n🚚 **Shipping:**\n${shipping}`;
+      content += `\n**Shipping Address:**\n${shipping}`;
     }
 
     content += `\n\n💬 **Have questions about this order?**\nJust ask your question and our support team will help you directly!`;
@@ -240,19 +242,19 @@ ${items}`;
     const fulfillment = order.fulfillment_status || 'unfulfilled';
 
     if (fulfillment === 'fulfilled') {
-      return '🚚 **Shipped** - Your order has been sent!';
+      return '**Shipped** - Your order has been sent';
     }
 
     if (fulfillment === 'partial') {
-      return '📦 **Partially Shipped** - Some items have been sent';
+      return '**Partially Shipped** - Some items have been sent';
     }
 
     if (financial === 'paid') {
-      return '⏳ **Processing** - Payment received, preparing to ship';
+      return '**Processing** - Payment received, preparing to ship';
     }
 
     if (financial === 'pending') {
-      return '💳 **Payment Pending** - Waiting for payment confirmation';
+      return '**Payment Pending** - Waiting for payment confirmation';  
     }
 
     return `📋 ${financial} / ${fulfillment}`;
@@ -267,7 +269,7 @@ ${items}`;
     }
 
     return lineItems.map(item => 
-      `• ${item.quantity}x ${item.name} - ${item.currency || 'USD'} ${item.price}`
+      `- ${item.quantity}x ${item.name} - ${item.currency || 'USD'} ${item.price}`
     ).join('\n');
   }
 
@@ -279,16 +281,16 @@ ${items}`;
 
     // Tracking info
     if (order.tracking_numbers && order.tracking_numbers.length > 0) {
-      shipping.push(`📋 **Tracking:** ${order.tracking_numbers.join(', ')}`);
+      shipping.push(`Tracking: ${order.tracking_numbers.join(', ')}`);
     }
 
     // Shipping address
     if (order.shipping_address) {
       const addr = order.shipping_address;
-      shipping.push(`📍 **Address:** ${addr.name || ''}`);
-      shipping.push(`    ${addr.address1 || ''}`);
-      if (addr.city) shipping.push(`    ${addr.city}, ${addr.zip || ''}`);
-      if (addr.country) shipping.push(`    ${addr.country}`);
+      shipping.push(`${addr.name || ''}`);
+      shipping.push(`${addr.address1 || ''}`);
+      if (addr.city) shipping.push(`${addr.city}, ${addr.zip || ''}`);
+      if (addr.country) shipping.push(`${addr.country}`);
     }
 
     return shipping.join('\n');
