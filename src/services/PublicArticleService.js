@@ -25,38 +25,41 @@ class PublicArticleService {
     this.MAX_DEPTH = 7;
     this.MAX_URLS = 200;
     this.CONCURRENT_REQUESTS = 3;
-    
+
+    // Allow disabling crawling via env
+    this.DISABLE_CRAWL = process.env.DISABLE_PUBLIC_ARTICLE_CRAWL === 'true';
+
     // NEW: Organized category URLs with better structure
-    this.CATEGORY_URLS = {
+    this.CATEGORY_CONFIG = {
       getting_started: {
         url: "https://intercom.help/frodobots/en/collections/3762588-getting-started",
-        keywords: ["getting started", "setup", "first time", "beginner", "installation"],
-        description: "Getting started guides and basic setup information"
+        keywords: ["start", "begin", "first steps", "setup"],
+        description: "Getting started guides and onboarding tutorials"
       },
       earthrover_school: {
         url: "https://intercom.help/frodobots/en/collections/3762589-earthrovers-school",
-        keywords: ["earthrover school", "learning", "education", "training", "school"],
-        description: "Educational content and learning resources"
+        keywords: ["earthrover", "school", "education", "learning", "students"],
+        description: "EarthRovers School content, educational resources and tutorials"
       },
       earthrover: {
         url: "https://intercom.help/frodobots/en/collections/9174353-earthrovers-personal-bots",
-        keywords: ["earthrover", "personal bot", "individual", "personal"],
-        description: "Earthrovers personal bot information and guides"
+        keywords: ["earthrover", "personal", "bot", "robot", "device", "hardware"],
+        description: "Personal EarthRovers features, usage and configuration"
       },
       ufb: {
         url: "https://intercom.help/frodobots/en/collections/12076791-ufb-ultimate-fighting-bots",
-        keywords: ["ufb", "ultimate fighting", "fighting", "battle", "combat"],
-        description: "Ultimate Fighting Bots information and guides"
+        keywords: ["ufb", "fighting", "competition", "bots", "ultimate"],
+        description: "Ultimate Fighting Bots competition, rules and guides"
       },
       sam: {
         url: "https://intercom.help/frodobots/en/collections/13197832-sam-small-autonomous-mofo",
-        keywords: ["sam", "small autonomous", "autonomous", "small"],
-        description: "SAM (Small Autonomous Mofo) information and guides"
+        keywords: ["sam", "autonomous", "ai", "robot"],
+        description: "SAM product information and support"
       },
       robotsfun: {
         url: "https://intercom.help/frodobots/en/collections/13197811-robots-fun",
-        keywords: ["robots fun", "fun", "entertainment", "games", "play"],
-        description: "Robots Fun entertainment and gaming content"
+        keywords: ["robots.fun", "robots", "fun", "platform"],
+        description: "Robots.fun platform usage and account management"
       },
       et_fugi: {
         url: "https://intercom.help/frodobots/en/articles/11561671-et-fugi-ai-competition",
@@ -80,6 +83,11 @@ class PublicArticleService {
   }
 
   async initialize() {
+    if (this.DISABLE_CRAWL) {
+      console.log("[PublicArticleService] Crawling disabled via DISABLE_PUBLIC_ARTICLE_CRAWL=true");
+      return this.cachedContent || "Article content loading disabled";
+    }
+
     // Check if we have cached content first
     if (this.cachedContent && this.categorizedContent && Object.keys(this.categorizedContent).length > 0) {
       console.log("PublicArticleService: Using cached content");
@@ -101,6 +109,7 @@ class PublicArticleService {
   }
 
   _scheduleRefresh() {
+    if (this.DISABLE_CRAWL) return; // skip scheduling when disabled
     if (this._refreshTimeout) clearTimeout(this._refreshTimeout);
     this._refreshTimeout = setTimeout(async () => {
       await this._refreshContent();
@@ -109,6 +118,7 @@ class PublicArticleService {
   }
 
   async _refreshContent() {
+    if (this.DISABLE_CRAWL) return; // skip refresh when disabled
     if (this._refreshInProgress) return;
     this._refreshInProgress = true;
     try {
@@ -182,7 +192,7 @@ class PublicArticleService {
   _getRelevantCategories(query) {
     const categoryScores = {};
     
-    for (const [category, config] of Object.entries(this.CATEGORY_URLS)) {
+    for (const [category, config] of Object.entries(this.CATEGORY_CONFIG)) {
       let score = 0;
       
       // Check keyword matches
@@ -351,7 +361,7 @@ ${article.content}
 
     this.categorizedContent = {};
     
-    for (const [category, config] of Object.entries(this.CATEGORY_URLS)) {
+    for (const [category, config] of Object.entries(this.CATEGORY_CONFIG)) {
       console.log(`[PublicArticleService] Fetching category: ${category}`);
       this.categorizedContent[category] = [];
       

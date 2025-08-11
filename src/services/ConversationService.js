@@ -139,6 +139,13 @@ Remember: Provide accurate, helpful information based on the relevant content pr
 
   addUserMessage(conversationId, message, isUserBased = true) {
     const key = isUserBased ? `user_${conversationId}` : conversationId;
+    
+    // Ensure conversation is initialized
+    if (!this.userConversations[key]) {
+      console.warn(`⚠️ Conversation ${key} not initialized, initializing now`);
+      this.userConversations[key] = [];
+    }
+    
     this.userConversations[key].push({ role: "user", content: message });
     console.log(`📝 Added user message to conversation ${key}. Total messages: ${this.userConversations[key].length}`);
     this.manageConversationLength(key);
@@ -146,6 +153,13 @@ Remember: Provide accurate, helpful information based on the relevant content pr
 
   addAssistantMessage(conversationId, message, isUserBased = true) {
     const key = isUserBased ? `user_${conversationId}` : conversationId;
+    
+    // Ensure conversation is initialized
+    if (!this.userConversations[key]) {
+      console.warn(`⚠️ Conversation ${key} not initialized, initializing now`);
+      this.userConversations[key] = [];
+    }
+    
     this.userConversations[key].push({ role: "assistant", content: message });
     console.log(`🤖 Added assistant message to conversation ${key}. Total messages: ${this.userConversations[key].length}`);
     this.manageConversationLength(key);

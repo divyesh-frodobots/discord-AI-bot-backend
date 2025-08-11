@@ -4,6 +4,7 @@ import constants from '../config/constants.js';
 import redis from './redisClient.js';
 import { getServerConfig } from '../config/serverConfigs.js';
 import dynamicChannelService from './DynamicPublicChannelService.js';
+import shopifyIntegrator from '../shopify/ShopifyIntegrator.js';
 
 /**
  * Public Channel Service - Thread-Based Conversation Management
@@ -841,6 +842,25 @@ class PublicChannelService {
 
   // Example usage in your thread message handler (update all relevant places):
   async handleThreadMessage(message, aiService, conversationService) {
+    // 🛍️ SHOPIFY INTEGRATION - Check for order-related queries first
+    try {
+      const shopifyResponse = await shopifyIntegrator.handlePublicMessage(message);
+      if (shopifyResponse) {
+        console.log('🛍️ Shopify handled public message');
+        await message.reply({ content: shopifyResponse.content, flags: ['SuppressEmbeds'] });
+        
+        // If Shopify fully handled it, skip AI
+        if (!shopifyResponse.shouldContinueToAI) {
+          console.log('✅ Shopify fully handled the query, skipping AI response');
+          return;
+        }
+        // Otherwise, continue to AI for additional context
+      }
+    } catch (shopifyError) {
+      console.error('❌ Shopify integration error (continuing to AI):', shopifyError.message);
+    }
+    // END SHOPIFY INTEGRATION
+    
     const conversationKey = this.getThreadConversationKey(message);
     // Initialize conversation for this thread if needed
     await conversationService.initializeConversation(conversationKey, null, false);

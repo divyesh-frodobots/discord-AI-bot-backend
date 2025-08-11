@@ -16,6 +16,7 @@ class TicketChannelManager {
   constructor(ticketSelectionService, loggingService) {
     this.ticketSelectionService = ticketSelectionService;
     this.loggingService = loggingService;
+    this.processingTickets = new Set(); // Track tickets being processed
   }
 
   /**
@@ -40,25 +41,66 @@ class TicketChannelManager {
       return;
     }
 
-    console.log(`🎫 New ticket created: ${channel.name} (${channel.id})`);
-
-    // Step 2: Initialize ticket state
-    await this.ticketSelectionService.set(channel.id, {
-      product: null,
-      humanHelp: false,
-      category: null,
-      questionsAnswered: false
-    });
-
-    // Step 3: Log ticket creation
-    if (this.loggingService) {
-      await this.loggingService.logTicketCreation(channel);
+    // Step 2: Immediate duplicate prevention - check if already processing
+    if (this.processingTickets.has(channel.id)) {
+      console.log(`⚠️ Already processing ticket: ${channel.name} (${channel.id}), skipping duplicate`);
+      return;
     }
 
-    // Step 4: Send welcome message after delay (let Ticket Tool send first)
-    setTimeout(async () => {
-      await this.sendWelcomeMessage(channel);
-    }, 2000);
+    // Add to processing set
+    this.processingTickets.add(channel.id);
+
+    console.log(`🎫 New ticket created: ${channel.name} (${channel.id}) - handleChannelCreation called`);
+
+    try {
+      // Step 3: Check if ticket state already exists (prevent duplicates)
+      const existingState = await this.ticketSelectionService.get(channel.id);
+      if (existingState && existingState.welcomeSent) {
+        console.log(`⚠️ Welcome already sent for ticket: ${channel.name}, skipping`);
+        return;
+      }
+
+      // Step 4: Initialize ticket state
+      await this.ticketSelectionService.set(channel.id, {
+        product: null,
+        humanHelp: false,
+        category: null,
+        questionsAnswered: false,
+        welcomeSent: false
+      });
+
+      // Step 5: Log ticket creation
+      if (this.loggingService) {
+        await this.loggingService.logTicketCreation(channel);
+      }
+
+      // Step 6: Send welcome message after delay (let Ticket Tool send first)
+      setTimeout(async () => {
+        try {
+          // Double-check welcome wasn't sent during timeout
+          const currentState = await this.ticketSelectionService.get(channel.id);
+          if (currentState && currentState.welcomeSent) {
+            console.log(`⚠️ Welcome already sent during timeout for: ${channel.name}, skipping`);
+            return;
+          }
+          
+          await this.sendWelcomeMessage(channel);
+          
+          // Mark welcome as sent
+          await this.ticketSelectionService.set(channel.id, {
+            ...currentState,
+            welcomeSent: true
+          });
+        } finally {
+          // Remove from processing set after timeout
+          this.processingTickets.delete(channel.id);
+        }
+      }, 2000);
+    } catch (error) {
+      console.error(`❌ Error processing ticket ${channel.name}:`, error);
+      // Remove from processing set on error
+      this.processingTickets.delete(channel.id);
+    }
   }
 
   /**
@@ -88,13 +130,15 @@ class TicketChannelManager {
    */
   async sendWelcomeMessage(channel) {
     try {
+      console.log(`🎫 sendWelcomeMessage called for: ${channel.name} (${channel.id})`);
+      
       // Step 1: Create category selection buttons
       const categoryButtons = this.createCategoryButtons();
 
       // Step 2: Send welcome message
       await channel.send({
         content: "🎫 **Welcome to FrodoBots Support!**\n\nPlease select a category to get started with your support request:",
-        components: [categoryButtons]
+        components: categoryButtons
       });
 
       console.log(`✅ Welcome message sent to ticket: ${channel.name}`);
@@ -105,10 +149,11 @@ class TicketChannelManager {
 
   /**
    * Create category selection button row
-   * @returns {ActionRowBuilder} Button row component
+   * @returns {ActionRowBuilder[]} Array of button rows
    */
   createCategoryButtons() {
-    return new ActionRowBuilder().addComponents(
+    // First row: General, Software, Hardware
+    const firstRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId('category_general')
         .setLabel('General Questions')
@@ -123,7 +168,11 @@ class TicketChannelManager {
         .setCustomId('category_hardware')
         .setLabel('Hardware Issue')
         .setStyle(ButtonStyle.Primary)
-        .setEmoji('🔧'),
+        .setEmoji('🔧')
+    );
+
+    // Second row: Bug Report, Billing, Order Status
+    const secondRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId('category_bug')
         .setLabel('Bug Report')
@@ -133,8 +182,15 @@ class TicketChannelManager {
         .setCustomId('category_billing')
         .setLabel('Billing/Account')
         .setStyle(ButtonStyle.Primary)
-        .setEmoji('💳')
+        .setEmoji('💳'),
+      new ButtonBuilder()
+        .setCustomId('category_orders')
+        .setLabel('Order Status')
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji('📦')
     );
+
+    return [firstRow, secondRow];
   }
 
   /**
