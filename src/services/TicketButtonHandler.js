@@ -55,47 +55,77 @@ class TicketButtonHandler {
    */
   async handleCategorySelection(interaction) {
     const channelId = interaction.channel.id;
-    
-    try {
-      await interaction.deferReply();
 
-      // Step 1: Determine action based on category
+    try {
+      // Acknowledge immediately to avoid 3s timeout
+      await interaction.deferUpdate();
+
+      // Build response content and components
+      let responseContent = '';
+      let components = [];
+
       switch (interaction.customId) {
-        case 'category_general':
-          await this.showProductSelection(interaction);
+        case 'category_general': {
+          responseContent = "✅ **General Questions** selected!\n\nSelect a product to get assistance:";
+          const generalButtons = this.createProductButtons(interaction.guild.id);
+          components = Object.values(generalButtons).filter(Boolean);
           break;
-        case 'category_software':
-          await this.showSoftwareProductSelection(interaction);
+        }
+        case 'category_software': {
+          responseContent = "✅ **Software/Setup** selected!\n\nSelect a product for software assistance:";
+          const softwareButtons = this.createProductButtons(interaction.guild.id);
+          components = Object.values(softwareButtons).filter(Boolean);
           break;
-        case 'category_hardware':
-          await this.showHardwareInstructions(interaction);
+        }
+        case 'category_hardware': {
+          responseContent = "✅ **Hardware Issue** selected!\n\n🔧 **Hardware Support Instructions:**\n\nFor hardware issues, our support team will need to assist you directly. Please describe your hardware problem and we'll get you connected with a technician.";
           break;
-        case 'category_bug':
-          await this.showBugReportInstructions(interaction);
+        }
+        case 'category_bug': {
+          responseContent = "✅ **Bug Report** selected!\n\n🐛 **Bug Report Instructions:**\n\nTo help us fix bugs quickly, please provide:\n1. **What happened?** (describe the bug)\n2. **What were you doing?** (steps to reproduce)\n3. **What should have happened?** (expected behavior)\n4. **Device/browser info** (if applicable)";
           break;
-        case 'category_billing':
-          await this.showBillingInstructions(interaction);
+        }
+        case 'category_billing': {
+          responseContent = "✅ **Billing/Account** selected!\n\n💳 **Billing Support:**\n\nOur billing team will assist you with account and payment issues. Please describe your billing question or concern.";
           break;
-        default:
-          await interaction.editReply({ content: '❌ Unknown category selection.' });
-          return;
+        }
+        case 'category_orders': {
+          responseContent = "✅ **Order Status** selected!\n\n📦 **Order Status Help:**\n\nI can help you check your order status! Please provide:\n- Your **order number** (e.g., #1234)\n- Your **email address** used for the order\n";
+          break;
+        }
+        default: {
+          responseContent = '❌ Unknown category selection.';
+          break;
+        }
       }
 
-      // Step 2: Update ticket state
-      await this.updateTicketState(channelId, {
-        category: interaction.customId,
-        humanHelp: false,
-        questionsAnswered: false
+      // Send a normal channel message (not tied to the interaction anymore)
+      await interaction.channel.send({
+        content: responseContent,
+        components: components,
       });
 
-      // Step 3: Log category selection
-      await this.logCategorySelection(interaction);
+      // Background: update state and log (non-blocking)
+      this.updateTicketState(channelId, {
+        category: interaction.customId,
+        humanHelp: false,
+        questionsAnswered: false,
+      }).catch(err => console.error('❌ State update error:', err));
+
+      this.logCategorySelection(interaction).catch(err =>
+        console.error('❌ Logging error:', err)
+      );
 
     } catch (error) {
       console.error('❌ Error handling category selection:', error);
-      await interaction.editReply({ 
-        content: '❌ An error occurred while processing your category selection. Please try again.' 
-      });
+      // If deferUpdate failed (rare), try replying ephemerally once
+      try {
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({ content: '❌ Error processing category selection. Please try again.', flags: ['Ephemeral'] });
+        }
+      } catch (replyError) {
+        console.error('❌ Could not send error reply:', replyError.message);
+      }
     }
   }
 
@@ -105,32 +135,33 @@ class TicketButtonHandler {
    */
   async handleProductSelection(interaction) {
     const channelId = interaction.channel.id;
-    
+
     try {
-      await interaction.deferReply();
+      // Acknowledge immediately to avoid timeout
+      await interaction.deferUpdate();
 
       // Step 1: Get product info from button ID
       const productInfo = this.getProductInfo(interaction.customId);
       if (!productInfo) {
-        await interaction.editReply({ content: '❌ Unknown product selection.' });
+        await interaction.channel.send({ content: '❌ Unknown product selection.' });
         return;
       }
 
       // Step 2: Get product articles and setup conversation
       const articles = await this.articleService.getArticlesByCategory(productInfo.key);
       this.conversationService.clearConversation(channelId, false);
-      
+
       const systemContent = this.buildSystemPrompt(articles, productInfo.name);
       await this.conversationService.initializeConversation(channelId, systemContent, false);
 
       // Step 3: Update ticket state
       await this.updateTicketState(channelId, {
         product: productInfo.key,
-        humanHelp: false
+        humanHelp: false,
       });
 
-      // Step 4: Send confirmation message
-      await interaction.editReply({ 
+      // Step 4: Send confirmation message (normal channel message)
+      await interaction.channel.send({
         content: `✅ You selected **${productInfo.displayName}**! Please ask your ${productInfo.name}-related question.`
       });
 
@@ -139,7 +170,10 @@ class TicketButtonHandler {
 
     } catch (error) {
       console.error('❌ Error handling product selection:', error);
-      await this.handleError(interaction, error);
+      // Best-effort user message
+      try {
+        await interaction.channel.send({ content: '❌ An error occurred while processing your product selection. Please try again.' });
+      } catch {}
     }
   }
 
@@ -252,6 +286,25 @@ class TicketButtonHandler {
       .setColor(0x0099FF)
       .setTitle('💳 Billing & Account Support')
       .setDescription('Please provide us with the details of your billing or account issue, and our team will handle it ASAP.')
+      .setFooter({ text: 'FrodoBots Support Team' })
+      .setTimestamp();
+
+    await interaction.editReply({ embeds: [embed] });
+  }
+
+  /**
+   * Show order status instructions
+   * @param {Object} interaction - Discord button interaction
+   */
+  async showOrderStatusInstructions(interaction) {
+    const embed = new EmbedBuilder()
+      .setColor(0x57F287)
+      .setTitle('🛍️ Order Status')
+      .setDescription('Please provide your order number to check the status of your purchase.')
+      .addFields(
+        { name: '**1. Order Number:**', value: 'Your order number (e.g., 1234567890123456789012345678901234567890)', inline: false },
+        { name: '**2. Email:**', value: 'Your email address associated with the order.', inline: false }
+      )
       .setFooter({ text: 'FrodoBots Support Team' })
       .setTimestamp();
 

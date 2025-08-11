@@ -1,6 +1,7 @@
 import { buildSystemPrompt, buildHumanHelpPrompt } from './ArticleService.js';
 import { getServerConfig, getServerFallbackResponse } from '../config/serverConfigs.js';
 import botRules from '../config/botRules.js';
+ import shopifyIntegrator from '../shopify/ShopifyIntegrator.js';
 
 /**
  * TicketChannelService - Handles message processing in ticket channels
@@ -111,31 +112,63 @@ class TicketChannelService {
       return;
     }
 
-    // Step 3: Handle categories that require immediate human escalation (Hardware, Bug, Billing)
+    // Step 3: If category is Order Status, route strictly to Shopify and stop
+    if (ticketState.category === 'category_orders') {
+      try {
+        const shopifyResponse = await shopifyIntegrator.handleTicketMessage(message, ticketState);
+        if (shopifyResponse) {
+          await message.reply({ content: shopifyResponse.content, flags: ['SuppressEmbeds'] });
+          
+          // Update ticket state if needed (for follow-up tracking)
+          if (shopifyResponse.updateTicketState) {
+            const updatedState = { ...ticketState, ...shopifyResponse.updateTicketState };
+            await this.ticketSelectionService.set(channelId, updatedState);
+          }
+
+          // Log the interaction
+          if (this.loggingService) {
+            const isEscalation = shopifyResponse.type === 'shopify_escalation';
+            await this.loggingService.logTicketInteraction(message, shopifyResponse.content, ticketState.product, isEscalation);
+          }
+          return; // Never let general AI reply in Order Status category
+        }
+        // If no shopify response, prompt for both fields
+        await message.reply({ content: 'Please provide BOTH your order number (e.g., #1734) and the email used for the purchase.', flags: ['SuppressEmbeds'] });
+        return;
+      } catch (e) {
+        console.error('❌ Order Status handling failed:', e.message);
+        await message.reply({ content: 'Sorry, I could not process the order status right now. Please try again.', flags: ['SuppressEmbeds'] });
+        return;
+      }
+    }
+
+    // Step 4: Handle categories that require immediate human escalation (Hardware, Bug, Billing)
     if (this.isCategoryQuestionFlow(ticketState)) {
       await this.handleCategoryQuestions(message, ticketState);
       return;
     }
 
-    // Step 4: Check for human help request
+    // Step 5: Check for human help request
     if (await this.detectHumanHelpRequest(message)) {
       await this.escalateToHuman(message, ticketState);
       return;
     }
 
-    // Step 5: Validate category selection first
+    // Step 6: Validate category selection first
     if (!ticketState.category) {
-      await this.requestCategorySelection(message);
+      // Don't send duplicate messages - the welcome message already has buttons
+      const noCategoryResponse = 'Please select a category using the buttons above to get started.';
+      await message.reply({ content: noCategoryResponse, flags: ['SuppressEmbeds'] });
       return;
     }
 
-    // Step 6: Validate product selection (only for categories that require product selection)
+    // Step 7: Validate product selection (skip for order status category)
     if (!ticketState.product) {
       await this.requestProductSelection(message);
       return;
     }
 
-    // Step 7: Generate AI response
+    // Step 8: Generate AI response
     await this.generateAIResponse(message, ticketState);
   }
 
@@ -328,8 +361,30 @@ class TicketChannelService {
     try {
       console.log(`🤖 Generating AI response for product: ${ticketState.product}`);
       
-      // Step 1: Add user message to conversation
+      // 🛍️ SHOPIFY INTEGRATION - Check for order-related queries first
+      try {
+        const shopifyResponse = await shopifyIntegrator.handleTicketMessage(message, ticketState);
+        if (shopifyResponse) {
+          console.log('🛍️ Shopify handled ticket message');
+          await message.reply({ content: shopifyResponse.content, flags: ['SuppressEmbeds'] });
+          
+          // Log Shopify interaction
+          if (this.loggingService) {
+            await this.loggingService.logTicketInteraction(message, shopifyResponse.content, ticketState.product, false);
+          }
+          
+          // Always stop after a Shopify response to avoid double replies
+          console.log('✅ Stopping after Shopify response to prevent duplicate replies');
+          return;
+        }
+      } catch (shopifyError) {
+        console.error('❌ Shopify integration error (continuing to AI):', shopifyError.message);
+      }
+      // END SHOPIFY INTEGRATION
+      
+      // Step 1: Initialize conversation if needed and add user message
       const channelId = message.channel.id;
+      await this.conversationService.initializeConversation(channelId, null, false);
       this.conversationService.addUserMessage(channelId, message.content, false);
       
       // Step 2: Get conversation history (includes product-specific system message)
@@ -391,7 +446,8 @@ class TicketChannelService {
       'category_bug': 'Bug Report', 
       'category_billing': 'Billing/Account',
       'category_general': 'General Questions',
-      'category_software': 'Software/Setup Issue'
+      'category_software': 'Software/Setup Issue',
+      'category_orders': 'Order Status'
     };
     return categoryNames[category] || 'Support';
   }

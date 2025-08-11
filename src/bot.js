@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { Client, GatewayIntentBits, ChannelType } from "discord.js";
+import { Client, GatewayIntentBits, ChannelType, ButtonBuilder, ActionRowBuilder, ButtonStyle } from "discord.js";
 import { getServerFallbackResponse, getServerConfig } from './config/serverConfigs.js';
 
 // Import services
@@ -14,6 +14,8 @@ import ChannelService from './services/ChannelService.js';
 import PublicArticleService from "./services/PublicArticleService.js";
 import PublicContentManager from "./services/PublicContentManager.js";
 import dynamicChannelService from './services/DynamicPublicChannelService.js';
+import shopifyIntegrator from './shopify/ShopifyIntegrator.js';
+import shopifyPublicIntegrator from './shopify/ShopifyPublicIntegrator.js';
 
 // Import handlers
 import TicketButtonHandler from './services/TicketButtonHandler.js';
@@ -45,6 +47,9 @@ const publicArticleService = new PublicArticleService();
 const publicChannelService = new PublicChannelService();
 const publicConversationService = new ConversationService(publicArticleService);
 const publicContentManager = new PublicContentManager();
+
+// Initialize Shopify integration with AI service for intelligent order detection
+shopifyIntegrator.setAIService(aiService);
 
 // Create Discord client
 const client = new Client({
@@ -204,6 +209,30 @@ async function isPublicChannelMessage(message) {
  */
 async function handlePublicChannelFlow(message) {
   try {
+    // 🛍️ SMART ROUTING - Check if sensitive order query should go to ticket
+    if (await shopifyIntegrator.isOrderRelated(message.content)) {
+      const shouldGoPrivate = await shopifyIntegrator.shouldRecommendPrivateChannel(message.content);
+      if (shouldGoPrivate) {
+        console.log('🛍️ Detected sensitive order query, recommending ticket creation');
+        // Get server config to find ticket channel
+        const serverConfig = getServerConfig(message.guild?.id);
+        const ticketChannelId = serverConfig?.ticketChannelId;
+        
+        if (ticketChannelId) {
+          // Use the Shopify redirect message
+          const redirectMessage = shopifyPublicIntegrator.createRedirectMessage(ticketChannelId);
+          await message.reply(redirectMessage);
+        } else {
+          // Fallback if no ticket channel configured
+          await message.reply(
+            '🔒 For privacy and security, please create a support ticket for order-related assistance. This helps us protect your personal information and provide better support.\n\n' +
+            'Use the ticket system for:\n• Order status and tracking\n• Refunds and returns\n• Account-specific issues\n• Payment problems'
+          );
+        }
+        return;
+      }
+    }
+
     // Check if bot should respond
     const responseCheck = await publicChannelService.shouldRespond(message, client.user.id, client);
 
@@ -336,6 +365,54 @@ async function checkForEscalation(context) {
  * Generate and send AI response
  */
 async function generateAIResponse(context) {
+  // 🛍️ SHOPIFY INTEGRATION - Check for order-related queries first
+  try {
+    const shopifyResponse = await shopifyIntegrator.handlePublicMessage(context.message);
+    if (shopifyResponse) {
+      console.log('🛍️ Shopify handled public message');
+      
+      // Stop typing
+      if (context.typingInterval) {
+        clearInterval(context.typingInterval);
+        context.typingInterval = null;
+      }
+      
+      // Prepare message content and components
+      const messageOptions = { 
+        content: shopifyResponse.content, 
+        flags: ['SuppressEmbeds'] 
+      };
+
+      // Add ticket creation button if requested
+      if (shopifyResponse.showTicketButton) {
+        const ticketButton = new ButtonBuilder()
+          .setCustomId('create_order_ticket')
+          .setLabel('🎫 Create Private Ticket')
+          .setStyle(ButtonStyle.Primary);
+
+        const continueButton = new ButtonBuilder()
+          .setCustomId('continue_public')
+          .setLabel('Continue Here')
+          .setStyle(ButtonStyle.Secondary);
+
+        const actionRow = new ActionRowBuilder().addComponents(ticketButton, continueButton);
+        messageOptions.components = [actionRow];
+      }
+
+      await context.targetChannel.send(messageOptions);
+      
+      // If Shopify fully handled it, skip AI
+      if (!shopifyResponse.shouldContinueToAI) {
+        console.log('✅ Shopify fully handled the query, skipping AI response');
+        return;
+      }
+      // Otherwise, continue to AI for additional context
+    }
+  } catch (shopifyError) {
+    console.error('❌ Shopify integration error (continuing to AI):', shopifyError.message);
+  }
+  // END SHOPIFY INTEGRATION
+
   // Generate thread-specific conversation key
   const conversationKey = getConversationKey(context.message);
 
@@ -557,14 +634,101 @@ async function handleSlashCommand(interaction) {
 }
 
 /**
- * Handle button interactions (ticket system only)
+ * Handle button interactions (ticket system and public channel ticket creation)
  */
 async function handleButtonInteraction(interaction) {
-  // Only handle buttons in ticket channels
+  // Handle ticket channel buttons
   if (ticketChannelService.isTicketChannel(interaction.channel)) {
     await ticketButtonHandler.handleButtonInteraction(interaction);
-  } else {
-    console.log(`🔘 Button interaction in non-ticket channel ignored: ${interaction.customId}`);
+    return;
+  }
+  
+  // Handle public channel buttons
+  if (interaction.customId === 'create_order_ticket') {
+    await handleCreateOrderTicket(interaction);
+    return;
+  }
+  
+  if (interaction.customId === 'continue_public') {
+    await handleContinuePublic(interaction);
+    return;
+  }
+  
+  console.log(`🔘 Button interaction ignored: ${interaction.customId}`);
+}
+
+/**
+ * Handle creating an order support ticket from public channel
+ */
+async function handleCreateOrderTicket(interaction) {
+  try {
+    await interaction.deferReply({ ephemeral: true });
+    
+    // Get server configuration
+    const serverConfig = getServerConfig(interaction.guild.id);
+    if (!serverConfig) {
+      await interaction.editReply({ content: '❌ Server configuration not found.' });
+      return;
+    }
+
+    // Create ticket thread
+    const supportChannel = await interaction.guild.channels.fetch(serverConfig.ticketChannelId);
+    if (!supportChannel) {
+      await interaction.editReply({ content: '❌ Support channel not found.' });
+      return;
+    }
+
+    const thread = await supportChannel.threads.create({
+      name: `${interaction.user.displayName}: Order Support`,
+      type: ChannelType.PrivateThread
+    });
+
+    // Auto-select "Order Status" category
+    await ticketSelectionService.set(thread.id, {
+      category: 'category_orders',
+      product: null,
+      humanHelp: false,
+      questionsAnswered: false
+    });
+
+    // Send welcome message in ticket
+    const welcomeMessage = '🎫 **Private Order Support Ticket**\n\n' +
+      `Hi ${interaction.user.displayName}! I can help you with:\n` +
+      '• Order status & tracking information\n' +
+      '• Shipping updates & delivery details\n' +
+      '• Order modifications & cancellations\n' +
+      '• Returns & refunds\n\n' +
+      'Please share your order number or describe what you need help with!';
+
+    await thread.send({ content: welcomeMessage });
+
+    // Log ticket creation
+    if (loggingService) {
+      await loggingService.logTicketCreation(thread, interaction.user, 'Order Support (from public)');
+    }
+
+    // Notify user
+    await interaction.editReply({ 
+      content: `✅ **Created private order support ticket:** ${thread}\n\nYour order inquiry will be handled privately with full details available.` 
+    });
+
+  } catch (error) {
+    console.error('❌ Error creating order ticket:', error);
+    await interaction.editReply({ content: '❌ Failed to create support ticket. Please try again.' });
+  }
+}
+
+/**
+ * Handle continuing in public channel
+ */
+async function handleContinuePublic(interaction) {
+  try {
+    await interaction.reply({ 
+      content: '👍 **Continuing in public channel**\n\nI can provide basic order information here. Please provide your order number for a status check.\n\n*Remember: Only limited information will be shown for privacy.*',
+      ephemeral: true 
+    });
+  } catch (error) {
+    console.error('❌ Error handling continue public:', error);
   }
 }
 
