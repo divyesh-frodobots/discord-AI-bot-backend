@@ -582,8 +582,8 @@ async function logInteraction(context, response, confidence) {
  */
 async function handleProcessingError(context, error) {
   console.error("❌ Error processing public channel message:", error.message);
-
-  const fallbackResponse = constants.MESSAGES.getFallbackResponse(constants.ROLES.SUPPORT_TEAM);
+  const guildId = context.message.guild?.id;
+  const fallbackResponse = getServerFallbackResponse(guildId);
   await sendResponse(context, fallbackResponse);
 }
 
