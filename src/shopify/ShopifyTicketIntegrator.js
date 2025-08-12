@@ -1,7 +1,6 @@
 import shopifyService from './ShopifyService.js';
 import shopifyOrderDetector from './ShopifyOrderDetector.js';
-import { getServerConfig, getSupportTeamId } from '../config/serverConfigs.js';
-import constants from '../config/constants.js';
+import { getServerConfig, getServerFallbackResponse } from '../config/serverConfigs.js';
 
 /**
  * ShopifyTicketIntegrator - Simplified ticket channel integration
@@ -353,11 +352,8 @@ ${items}`;
    * Handle direct human support requests
    */
   _handleHumanSupportRequest(message, ticketState) {
-    // Get the support team ID for this server
-    const supportTeamId = getSupportTeamId(message.guild?.id);
-    
     // Use the standardized fallback response
-    const fallbackResponse = constants.MESSAGES.getFallbackResponse(supportTeamId);
+    const fallbackResponse = getServerFallbackResponse(message.guild?.id);
     
     return {
       type: 'shopify_escalation',

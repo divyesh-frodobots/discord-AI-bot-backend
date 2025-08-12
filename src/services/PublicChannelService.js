@@ -1,8 +1,7 @@
 import botRules from '../config/botRules.js';
 import { buildHumanHelpPrompt } from './ArticleService.js';
-import constants from '../config/constants.js';
 import redis from './redisClient.js';
-import { getServerConfig } from '../config/serverConfigs.js';
+import { getServerFallbackResponse } from '../config/serverConfigs.js';
 import dynamicChannelService from './DynamicPublicChannelService.js';
 import shopifyIntegrator from '../shopify/ShopifyIntegrator.js';
 
@@ -237,13 +236,14 @@ class PublicChannelService {
     const userId = message.author.id;
     const channelId = message.channel.isThread() ? message.channel.parentId : message.channel.id;
     const threadId = message.channel.isThread() ? message.channel.id : null;
+    const guildId = message.guild?.id;
     
     // Mark user as escalated per thread (not per channel)
     const sessionKey = threadId ? `${userId}:${channelId}:${threadId}` : `${userId}:${channelId}`;
     this.escalatedUsers.set(sessionKey, true);
     
     // Send support message to appropriate channel
-    const supportMessage = constants.MESSAGES.getFallbackResponse(constants.ROLES.SUPPORT_TEAM);
+    const supportMessage = getServerFallbackResponse(guildId);
     
     if (targetChannel && targetChannel !== message.channel) {
       // Send to specific target channel (e.g., user's thread)
@@ -418,12 +418,13 @@ class PublicChannelService {
       { role: "system", content: systemContent },
       { role: "user", content: message.content }
     ];
+    const guildId = message.guild?.id;
 
     const aiResponse = await aiService.generateResponse(messages);
     
     const isEscalation = aiResponse && 
                         aiResponse.isValid && 
-                        aiResponse.response.includes(constants.MESSAGES.getFallbackResponse(constants.ROLES.SUPPORT_TEAM));
+                        aiResponse.response.includes(getServerFallbackResponse(guildId));
     
     console.log(`🤖 AI escalation analysis for "${message.content}": ${isEscalation ? 'ESCALATE' : 'CONTINUE'}`);
     return isEscalation;
