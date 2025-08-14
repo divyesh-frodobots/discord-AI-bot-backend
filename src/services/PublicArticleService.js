@@ -1,6 +1,5 @@
 import axios from "axios";
 import * as cheerio from 'cheerio';
-import constants from "../config/constants.js";
 import { buildHumanHelpPrompt } from './ArticleService.js';
 
 class PublicArticleService {
@@ -450,33 +449,39 @@ ${article.content}
                    $('title').text().trim() || 
                    'Untitled Article';
       
-      // Extract content
+      // Extract content and media content (links, images, etc.)
       let content = "";
+      let mediaContent = "";
       const articleElement = $("article");
       if (articleElement.length > 0) {
         content = articleElement.text();
+        mediaContent = this.extractMediaContent($, articleElement, url);
       } else {
         const mainElement = $("main");
         if (mainElement.length > 0) {
           content = mainElement.text();
+          mediaContent = this.extractMediaContent($, mainElement, url);
         } else {
           const bodyElement = $("body");
           content = bodyElement.text();
+          mediaContent = this.extractMediaContent($, bodyElement, url);
         }
       }
       
       const cleanText = content.replace(/\s+/g, " ").trim();
+      const textWithClickableUrls = this.cleanUrlsForDiscord(cleanText);
+      const combinedContent = textWithClickableUrls + (mediaContent ? "\n\n" + mediaContent : "");
       
-      if (cleanText.length < 50) {
+      if (combinedContent.length < 50) {
         return null; // Skip very short articles
       }
       
       return {
         title: title,
-        content: cleanText,
+        content: combinedContent,
         url: url,
         category: category,
-        tokens: this._estimateTokens(cleanText)
+        tokens: this._estimateTokens(combinedContent)
       };
       
     } catch (err) {
@@ -717,6 +722,10 @@ ${relevantContent}
 
 INSTRUCTIONS:
 - Answer based ONLY on the information provided above
+- When users ask about websites, links, or URLs, check the article content for any mentioned links and share them
+- If an article mentions links like "Test Drive", "Visit website", domain names like "ufb.gg", or any URLs, always include those URLs in your response
+- ALWAYS include the full URL with https:// protocol (e.g., https://ufb.gg not just ufb.gg) so Discord can make it clickable
+- Use plain URLs without markdown formatting (e.g., https://robots.fun/test-drive not [Test Drive](https://robots.fun/test-drive))
 - If the information doesn't cover the specific question, say "I don't have specific information about that. You can ask to talk to team for more detailed help."
 - Be friendly, conversational, and helpful
 - Keep responses concise but informative
@@ -730,6 +739,9 @@ ${this.cachedContent || "[No content loaded]"}
 
 ADDITIONAL CONTEXT:
 - You have access to the above FrodoBots help articles and information
+- When users ask about websites or links, always check the article content for any mentioned URLs and share them
+- ALWAYS include the full URL with https:// protocol (e.g., https://ufb.gg not just ufb.gg) so Discord can make it clickable
+- Use plain URLs without markdown formatting - Discord will auto-link them
 - Focus on FrodoBots services, robot fighting, Earthrovers, and related topics
 - If questions are unrelated to FrodoBots, politely redirect to FrodoBots services
 - Be friendly, conversational, and encouraging

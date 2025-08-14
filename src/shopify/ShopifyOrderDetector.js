@@ -163,7 +163,11 @@ Message: "${content}"`;
         { role: 'user', content: prompt }
       ]);
 
-      return response.toLowerCase().includes('yes');
+      // AIService returns an object with {isValid, response, confidence}
+      if (response && response.isValid && typeof response.response === 'string') {
+        return response.response.toLowerCase().includes('yes');
+      }
+      return false;
     } catch (error) {
       console.error('❌ AI order detection failed:', error.message);
       return false;
