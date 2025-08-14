@@ -1,7 +1,7 @@
 import botRules from '../config/botRules.js';
 import { buildHumanHelpPrompt } from './ArticleService.js';
 import redis from './redisClient.js';
-import { getServerFallbackResponse } from '../config/serverConfigs.js';
+import { getServerFallbackResponse, getServerConfig } from '../config/serverConfigs.js';
 import dynamicChannelService from './DynamicPublicChannelService.js';
 import shopifyIntegrator from '../shopify/ShopifyIntegrator.js';
 
@@ -66,6 +66,12 @@ class PublicChannelService {
   async _handleThreadMessage(message, userId) {
     // Check if this is the user's own thread
     if (await this.isInUserThread(message)) {
+      // Check if support staff has taken over this thread
+      if (await this.isSupportHandledThread(message)) {
+        console.log(`🛑 Support staff is handling thread: ${message.channel.name}`);
+        return { shouldRespond: false, reason: 'support_handled' };
+      }
+      
       console.log(`📝 Message from ${userId} in their own thread: ${message.channel.name}`);
       return { shouldRespond: true, reason: 'in_user_thread' };
     }
@@ -186,6 +192,57 @@ class PublicChannelService {
     // Check Redis for this thread
     const exists = await redis.exists(`publicthread:${userId}:${parentChannelId}:${threadId}`);
     return !!exists;
+  }
+
+  /**
+   * Check if support staff has taken over this thread
+   */
+  async isSupportHandledThread(message) {
+    if (!message.channel.isThread()) return false;
+    
+    const threadId = message.channel.id;
+    const guildId = message.guild?.id;
+    
+    // Check Redis for support-handled flag
+    const isHandled = await redis.get(`publicthread:support-handled:${threadId}`);
+    if (isHandled) {
+      return true;
+    }
+    
+    // Get server config to check staff roles
+    const serverConfig = getServerConfig(guildId);
+    if (!serverConfig || !serverConfig.staffRoleIds) {
+      return false;
+    }
+    
+    try {
+      // Check last 20 messages in thread for support staff
+      const messages = await message.channel.messages.fetch({ limit: 20 });
+      
+      for (const [msgId, msg] of messages) {
+        // Skip bot messages
+        if (msg.author.bot) continue;
+        
+        // Check if message author has any staff role
+        const member = msg.member || await message.guild.members.fetch(msg.author.id).catch(() => null);
+        if (!member) continue;
+        
+        const hasStaffRole = serverConfig.staffRoleIds.some(roleId => 
+          member.roles.cache.has(roleId)
+        );
+        
+        if (hasStaffRole) {
+          // Mark thread as support-handled in Redis
+          await redis.set(`publicthread:support-handled:${threadId}`, 'true', 'EX', 86400); // 24 hour expiry
+          console.log(`👮 Support staff detected in thread ${threadId} - marking as handled`);
+          return true;
+        }
+      }
+    } catch (error) {
+      console.error('Error checking for support staff:', error);
+    }
+    
+    return false;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════════

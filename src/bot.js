@@ -16,6 +16,7 @@ import PublicContentManager from "./services/PublicContentManager.js";
 import dynamicChannelService from './services/DynamicPublicChannelService.js';
 import shopifyIntegrator from './shopify/ShopifyIntegrator.js';
 import shopifyPublicIntegrator from './shopify/ShopifyPublicIntegrator.js';
+import redis from './services/redisClient.js';
 
 // Import handlers
 import TicketButtonHandler from './services/TicketButtonHandler.js';
@@ -160,6 +161,13 @@ client.on("messageCreate", async (message) => {
 
     // Route to public channel system
     if (await isPublicChannelMessage(message)) {
+      // Check if this is a support staff member in a thread
+      if (message.channel.isThread() && await isStaffMember(message)) {
+        await markThreadAsSupportHandled(message);
+        console.log(`👮 Support staff message detected - bot will stop responding in thread: ${message.channel.name}`);
+        return; // Don't process this message further
+      }
+      
       await handlePublicChannelFlow(message);
       return;
     }
@@ -513,6 +521,47 @@ function getConversationKey(message) {
 function isLowConfidenceResponse(aiResponse) {
   return aiResponse.confidence &&
          aiResponse.confidence < botRules.PUBLIC_CHANNELS.CONFIDENCE_THRESHOLD;
+}
+
+/**
+ * Check if message author is a staff member
+ */
+async function isStaffMember(message) {
+  const guildId = message.guild?.id;
+  const serverConfig = getServerConfig(guildId);
+  
+  if (!serverConfig || !serverConfig.staffRoleIds) {
+    return false;
+  }
+  
+  try {
+    const member = message.member || await message.guild.members.fetch(message.author.id).catch(() => null);
+    if (!member) return false;
+    
+    return serverConfig.staffRoleIds.some(roleId => 
+      member.roles.cache.has(roleId)
+    );
+  } catch (error) {
+    console.error('Error checking staff member:', error);
+    return false;
+  }
+}
+
+/**
+ * Mark a thread as being handled by support staff
+ */
+async function markThreadAsSupportHandled(message) {
+  const threadId = message.channel.id;
+  
+  try {
+    // Mark in Redis with 24 hour expiry
+    await redis.set(`publicthread:support-handled:${threadId}`, 'true', 'EX', 86400);
+    
+    // Silent operation - no notification message sent
+    console.log(`🔇 Thread ${threadId} marked as support-handled (silent mode)`);
+  } catch (error) {
+    console.error('Error marking thread as support-handled:', error);
+  }
 }
 
 /**
