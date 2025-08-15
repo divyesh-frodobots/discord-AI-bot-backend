@@ -214,12 +214,19 @@ Please try again or contact our support team.`
     const status = this._getStatusDisplay(order);
     const items = this._formatLineItems(order.line_items || []);
     const shipping = this._formatShippingInfo(order);
+    const trackingInfo = this._getTrackingDisplay(order);
 
     let content = `**Order ${orderNumber} Details**
 
 **Status:** ${status}
 **Total:** ${order.currency || 'USD'} ${order.current_total_price || order.total_price || '0.00'}
-**Placed:** ${this._formatDate(order.created_at)}
+**Placed:** ${this._formatDate(order.created_at)}`;
+
+    if (trackingInfo) {
+      content += `\n**Tracking Number:** ${trackingInfo}`;
+    }
+
+    content += `
 
 **Items:**
 ${items}`;
@@ -273,15 +280,34 @@ ${items}`;
   }
 
   /**
+   * Get tracking number display
+   */
+  _getTrackingDisplay(order) {
+    const trackingNumbers = [];
+    
+    // Extract tracking numbers from fulfillments
+    if (order.fulfillments && order.fulfillments.length > 0) {
+      order.fulfillments.forEach(fulfillment => {
+        if (fulfillment.tracking_numbers && fulfillment.tracking_numbers.length > 0) {
+          trackingNumbers.push(...fulfillment.tracking_numbers);
+        }
+        // Also check for tracking_number (singular) field
+        if (fulfillment.tracking_number) {
+          trackingNumbers.push(fulfillment.tracking_number);
+        }
+      });
+    }
+    
+    // Remove duplicates and return
+    const uniqueTrackingNumbers = [...new Set(trackingNumbers)];
+    return uniqueTrackingNumbers.length > 0 ? uniqueTrackingNumbers.join(', ') : null;
+  }
+
+  /**
    * Format shipping information
    */
   _formatShippingInfo(order) {
     const shipping = [];
-
-    // Tracking info
-    if (order.tracking_numbers && order.tracking_numbers.length > 0) {
-      shipping.push(`Tracking: ${order.tracking_numbers.join(', ')}`);
-    }
 
     // Shipping address
     if (order.shipping_address) {

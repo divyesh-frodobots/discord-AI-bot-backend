@@ -69,7 +69,8 @@ class ShopifyService {
       const orders = await this.shopify.order.list({
         status: 'any',
         name: cleanNumber,
-        limit: 1
+        limit: 1,
+        fields: 'id,name,email,financial_status,fulfillment_status,current_total_price,total_price,currency,created_at,line_items,shipping_address,fulfillments'
       });
 
       if (!orders || orders.length === 0) {
@@ -99,7 +100,8 @@ class ShopifyService {
       const orders = await this.shopify.order.list({
         status: 'any',
         email: email,
-        limit: 10
+        limit: 10,
+        fields: 'id,name,email,financial_status,fulfillment_status,current_total_price,total_price,currency,created_at,line_items,shipping_address,fulfillments'
       });
 
       return { success: true, orders: orders || [] };

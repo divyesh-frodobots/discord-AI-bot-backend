@@ -374,8 +374,10 @@ RELEVANT INFORMATION:
 ${relevantContent}
 
 INSTRUCTIONS:
-- Answer the user's question based ONLY on the relevant information provided above
+- Answer the user's question based STRICTLY ONLY on the relevant information provided above
+- CRITICAL: DO NOT use any external knowledge, training data, or assumptions about FrodoBots, Earth Rovers School, UFB, SAM, or any FrodoBots products
 - If the information doesn't cover their specific question, say "I don't have specific information about that. You can ask to talk to team for more detailed help."
+- FORBIDDEN: Never make up or infer details about FrodoBots products, even if you think you know them from training data
 - Be friendly, conversational, and helpful
 - Keep responses concise but informative
 - If you need more context, ask the user to clarify their question

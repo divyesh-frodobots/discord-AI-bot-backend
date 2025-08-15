@@ -1,21 +1,16 @@
 /**
- * ShopifyOrderDetector - Simplified order-related message detection
+ * ShopifyOrderDetector - AI-powered order intent detection
  * 
- * This service provides simple order detection using:
- * - Basic keyword matching for common order terms
- * - Order number pattern recognition
- * - Email extraction from messages
- * - AI-powered detection as fallback (if available)
+ * This service uses AI to intelligently determine if a message is asking about:
+ * - Order status, tracking, or shipping updates
+ * - Returns, refunds, or order modifications
+ * - Purchase-related account issues
+ * 
+ * It differentiates between order inquiries and product support questions.
  */
 class ShopifyOrderDetector {
   constructor() {
     this.aiService = null;
-    
-    // Common order-related keywords
-    this.ORDER_KEYWORDS = [
-      'order', 'orders', 'purchase', 'bought', 'tracking',
-      'shipment', 'delivery', 'status', 'refund', 'return'
-    ];
 
     // Order number patterns (4+ digits, often with #)
     this.ORDER_PATTERNS = [
@@ -35,7 +30,7 @@ class ShopifyOrderDetector {
   }
 
   /**
-   * Check if message is order-related
+   * Check if message is order-related using AI intent analysis
    */
   async isOrderRelated(message) {
     const content = this._extractContent(message);
@@ -45,20 +40,17 @@ class ShopifyOrderDetector {
       return false;
     }
 
-    // Basic keyword and pattern check
-    const hasOrderKeyword = this._hasOrderKeywords(content);
-    const hasOrderNumber = this._hasOrderNumber(content);
-
-    // If we have clear indicators, return true
-    if (hasOrderKeyword || hasOrderNumber) {
+    // First check for obvious order numbers - if present, likely order-related
+    if (this._hasOrderNumber(content)) {
       return true;
     }
 
-    // Use AI as fallback if available
+    // Use AI to analyze intent (primary method)
     if (this.aiService) {
-      return await this._checkWithAI(content);
+      return await this._analyzeIntentWithAI(content);
     }
 
+    // Fallback: no AI available, be conservative
     return false;
   }
 
@@ -72,7 +64,6 @@ class ShopifyOrderDetector {
       isOrderRelated: await this.isOrderRelated(message),
       orderNumbers: this._extractOrderNumbers(content),
       emails: this._extractEmails(content),
-      hasOrderKeywords: this._hasOrderKeywords(content),
       content: content
     };
 
@@ -99,15 +90,7 @@ class ShopifyOrderDetector {
     return '';
   }
 
-  /**
-   * Check for order-related keywords
-   */
-  _hasOrderKeywords(content) {
-    const lowerContent = content.toLowerCase();
-    return this.ORDER_KEYWORDS.some(keyword => 
-      lowerContent.includes(keyword)
-    );
-  }
+
 
   /**
    * Check for order number patterns
@@ -147,15 +130,33 @@ class ShopifyOrderDetector {
   }
 
   /**
-   * Use AI to detect order-related content (fallback)
+   * Use AI to analyze user intent and determine if it's truly an order inquiry
    */
-  async _checkWithAI(content) {
+  async _analyzeIntentWithAI(content) {
     if (!this.aiService) {
       return false;
     }
 
     try {
-      const prompt = `Is this message asking about an order, purchase, shipping, or delivery? Reply only "yes" or "no".
+      const prompt = `Analyze this user message and determine if they are asking about an EXISTING ORDER they already placed.
+
+DO NOT classify as order-related if they are asking about:
+- Where to buy or how to purchase (pre-purchase questions)
+- Product setup, installation, or activation
+- How to use a product they received
+- Unboxing instructions
+- Technical support for a product
+- Product features or troubleshooting
+- General product information or pricing
+
+ONLY classify as order-related if they have an EXISTING ORDER and want to:
+- Check order status or tracking of a placed order
+- Modify, cancel, or return an existing order
+- Get refund for an existing order
+- Report shipping/delivery problems with a placed order
+- Ask about billing issues with an existing order
+
+Reply only "ORDER" if it's about an existing order, or "GENERAL" if it's anything else.
 
 Message: "${content}"`;
 
@@ -165,11 +166,12 @@ Message: "${content}"`;
 
       // AIService returns an object with {isValid, response, confidence}
       if (response && response.isValid && typeof response.response === 'string') {
-        return response.response.toLowerCase().includes('yes');
+        const answer = response.response.toUpperCase().trim();
+        return answer.includes('ORDER');
       }
       return false;
     } catch (error) {
-      console.error('❌ AI order detection failed:', error.message);
+      console.error('❌ AI intent analysis failed:', error.message);
       return false;
     }
   }
