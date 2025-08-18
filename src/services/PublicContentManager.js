@@ -65,6 +65,11 @@ class PublicContentManager {
         description: 'Earthrovers personal bot information and guides',
         priority: 4
       },
+      earthrover_school: {
+        keywords: ['earthrover school', 'school', 'education', 'learning', 'mission', 'test drive', 'life points', 'LP', 'life point', 'points', 'credits', 'leaderboard'],
+        description: 'EarthRover School educational content and tutorials',
+        priority: 4
+      },
       ufb: {
         keywords: ['ufb', 'ultimate fighting', 'fighting', 'battle', 'combat'],
         description: 'Ultimate Fighting Bots information and guides',
