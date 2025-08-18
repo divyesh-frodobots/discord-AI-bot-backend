@@ -16,7 +16,7 @@ class AIService {
   async generateResponse(messages, guildId = null) {
     try {
       // Let AI decide response length based on question complexity
-      const intelligentSystemPrompt = `You are a helpful Discord bot for FrodoBots. You can engage in basic conversation and greetings, but for technical questions about FrodoBots products, you must ONLY use information from the provided conversation context. For technical questions not covered in the provided content, say 'I don't have specific information about that. You can ask to talk to team for more detailed help.'
+      const intelligentSystemPrompt = `You are a helpful Discord bot for FrodoBots. You can engage in basic conversation and greetings, but for technical questions about FrodoBots products, you must STRICTLY ONLY use information from the provided conversation context. CRITICAL: DO NOT use any external knowledge, training data, or assumptions about FrodoBots, bots, or any other systems. For technical questions not covered in the provided content, say 'I don't have specific information about that. You can ask to talk to team for more detailed help.'
 
 RESPONSE LENGTH GUIDELINES:
 Analyze the user's question and determine if they need a BRIEF or COMPREHENSIVE response:

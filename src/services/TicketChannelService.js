@@ -382,15 +382,23 @@ class TicketChannelService {
       }
       // END SHOPIFY INTEGRATION
       
-      // Step 1: Initialize conversation if needed and add user message
+      // Step 1: Start typing indicator and get product-specific articles
       const channelId = message.channel.id;
-      await this.conversationService.initializeConversation(channelId, null, false);
+      await message.channel.sendTyping();
+      
+      // Get product articles for the selected product
+      const articles = await this.articleService.getArticlesByCategory(ticketState.product);
+      const productDisplayName = this.getProductDisplayName(ticketState.product);
+      const systemContent = buildSystemPrompt(articles, productDisplayName);
+      
+      // Initialize conversation with product-specific content
+      await this.conversationService.initializeConversation(channelId, systemContent, false);
       this.conversationService.addUserMessage(channelId, message.content, false);
       
       // Step 2: Get conversation history (includes product-specific system message)
       const aiMessages = this.conversationService.getConversationHistory(channelId, false);
       
-      // Step 3: Generate response
+      // Step 3: Generate response (continue typing indicator)
       await message.channel.sendTyping();
       const aiResponse = await this.aiService.generateResponse(aiMessages, message.guild.id);
 
@@ -450,6 +458,23 @@ class TicketChannelService {
       'category_orders': 'Order Status'
     };
     return categoryNames[category] || 'Support';
+  }
+
+  /**
+   * Get display name for product
+   * @param {string} product - Product key
+   * @returns {string} Display name
+   */
+  getProductDisplayName(product) {
+    const productNames = {
+      'ufb': 'UFB',
+      'earthrover': 'Earthrover',
+      'earthrover_school': 'Earthrover School',
+      'sam': 'SAM',
+      'robotsfun': 'Robots.Fun',
+      'et_fugi': 'ET Fugi'
+    };
+    return productNames[product] || 'FrodoBots Product';
   }
 }
 

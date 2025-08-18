@@ -147,32 +147,57 @@ class TicketButtonHandler {
         return;
       }
 
-      // Step 2: Get product articles and setup conversation
-      const articles = await this.articleService.getArticlesByCategory(productInfo.key);
-      this.conversationService.clearConversation(channelId, false);
-
-      const systemContent = this.buildSystemPrompt(articles, productInfo.name);
-      await this.conversationService.initializeConversation(channelId, systemContent, false);
-
-      // Step 3: Update ticket state
-      await this.updateTicketState(channelId, {
-        product: productInfo.key,
-        humanHelp: false,
+      // Step 2: Send thinking message while fetching articles
+      const loadingText = this.getProductLoadingMessage(productInfo);
+      const thinkingMessage = await interaction.channel.send({
+        content: loadingText
       });
 
-      // Step 4: Send confirmation message (normal channel message)
-      await interaction.channel.send({
-        content: `✅ You selected **${productInfo.displayName}**! Please ask your ${productInfo.name}-related question.`
-      });
+      try {
+        // Step 3: Get product articles and setup conversation
+        const articles = await this.articleService.getArticlesByCategory(productInfo.key);
+        this.conversationService.clearConversation(channelId, false);
 
-      // Step 5: Log product selection
+        const systemContent = this.buildSystemPrompt(articles, productInfo.name);
+        await this.conversationService.initializeConversation(channelId, systemContent, false);
+
+        // Step 4: Update ticket state
+        await this.updateTicketState(channelId, {
+          product: productInfo.key,
+          humanHelp: false,
+        });
+
+        // Step 5: Delete thinking message and send ready message
+        await thinkingMessage.delete();
+        await interaction.channel.send({
+          content: this.getProductReadyMessage(productInfo)
+        });
+
+      } catch (articleError) {
+        console.error('❌ Error fetching articles:', articleError);
+        // Delete thinking message and send error message
+        try {
+          await thinkingMessage.delete();
+          await interaction.channel.send({
+            content: `❌ **Sorry, I'm having trouble setting up ${productInfo.displayName} support right now.**\nPlease try selecting the product again, or ask to talk to team for immediate help.`
+          });
+        } catch (deleteError) {
+          // If delete fails, edit instead
+          await thinkingMessage.edit({
+            content: `❌ **Sorry, I'm having trouble setting up ${productInfo.displayName} support right now.**\nPlease try selecting the product again, or ask to talk to team for immediate help.`
+          });
+        }
+        throw articleError; // Re-throw to be caught by outer try-catch
+      }
+
+      // Step 6: Log product selection
       await this.logProductSelection(interaction, productInfo);
 
     } catch (error) {
       console.error('❌ Error handling product selection:', error);
-      // Best-effort user message
+      // Best-effort user message - only if we haven't already sent a thinking message
       try {
-        await interaction.channel.send({ content: '❌ An error occurred while processing your product selection. Please try again.' });
+        await interaction.channel.send({ content: '❌ **Something went wrong with your product selection.**\nPlease try clicking the product button again, or ask to talk to team for help.' });
       } catch {}
     }
   }
@@ -372,6 +397,24 @@ class TicketButtonHandler {
     };
     
     return productMap[buttonId] || null;
+  }
+
+  /**
+   * Get product-specific loading message
+   * @param {Object} productInfo - Product information object
+   * @returns {string} Loading message
+   */
+  getProductLoadingMessage(productInfo) {
+    return `🔄 Fetching ${productInfo.displayName} knowledge base… please wait a moment.`;
+  }
+
+  /**
+   * Get product-specific ready message
+   * @param {Object} productInfo - Product information object
+   * @returns {string} Ready message
+   */
+  getProductReadyMessage(productInfo) {
+    return `You selected ${productInfo.displayName}! Please ask your ${productInfo.displayName}-related question.`;
   }
 
   /**
