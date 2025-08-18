@@ -125,7 +125,7 @@ Our team will get back to you soon! 🚀`,
 
 To check your order status, I need both pieces of information:
 
-🔢 **Order Number:** (e.g., #1234 or 1234)
+**Order Number:** (e.g., #1234 or 1234)
 📧 **Email Address:** The email you used when placing the order
 
 **Example:** "Check order #1234 for email@example.com"
@@ -138,7 +138,7 @@ Please provide both to continue! 🔒`;
 
 I see you provided an email address, but I also need your order number.
 
-🔢 **Order Number:** (e.g., #1234 or 1234)
+**Order Number:** (e.g., #1234 or 1234)
 
 Please provide your order number to continue!`;
     }
