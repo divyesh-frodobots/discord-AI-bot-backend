@@ -100,17 +100,12 @@ class ShopifyTicketIntegrator {
     
     return {
       type: 'shopify_escalation',
-      content: `👨‍💼 **Customer Support Needed**
+      content: `We've received your follow-up on order #${orderNumber}. ${supportTags} will get back to you with this.
 
-I see you have a follow-up question regarding order **#${orderNumber}**. Our customer support team will help you with this!
+**Support Hours:** Mon-Fri, 10am-6pm SGT
 
-**Support Hours:** Mon-Fri, 10am-6pm SGT.
-
-${supportTags} Order Follow-up Request
-📦 **Order:** ${orderNumber}
-📧 **Customer:** ${ticketState.lastOrderEmail || 'Not specified'}
-
-Our team will get back to you soon! 🚀`,
+**Order Number:** ${orderNumber}
+**Email:** ${ticketState.lastOrderEmail || 'Not specified'} (edited)`,
       shouldContinueToAI: false,
       escalateToSupport: true
     };
