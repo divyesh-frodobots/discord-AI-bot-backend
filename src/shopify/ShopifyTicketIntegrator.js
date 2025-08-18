@@ -125,7 +125,7 @@ Our team will get back to you soon! 🚀`,
 
 To check your order status, I need both pieces of information:
 
-🔢 **Order Number:** (e.g., #1234 or 1234)
+**Order Number:** (e.g., #1234 or 1234)
 📧 **Email Address:** The email you used when placing the order
 
 **Example:** "Check order #1234 for email@example.com"
@@ -138,7 +138,7 @@ Please provide both to continue! 🔒`;
 
 I see you provided an email address, but I also need your order number.
 
-🔢 **Order Number:** (e.g., #1234 or 1234)
+**Order Number:** (e.g., #1234 or 1234)
 
 Please provide your order number to continue!`;
     }
@@ -223,7 +223,7 @@ Please try again or contact our support team.`
 **Placed:** ${this._formatDate(order.created_at)}`;
 
     if (trackingInfo) {
-      content += `\n**Tracking Number:** ${trackingInfo}`;
+      content += `\n**Track order:** ${trackingInfo}`;
     }
 
     content += `
@@ -280,7 +280,7 @@ ${items}`;
   }
 
   /**
-   * Get tracking number display
+   * Get tracking number display with clickable links
    */
   _getTrackingDisplay(order) {
     const trackingNumbers = [];
@@ -298,9 +298,19 @@ ${items}`;
       });
     }
     
-    // Remove duplicates and return
+    // Remove duplicates
     const uniqueTrackingNumbers = [...new Set(trackingNumbers)];
-    return uniqueTrackingNumbers.length > 0 ? uniqueTrackingNumbers.join(', ') : null;
+    
+    if (uniqueTrackingNumbers.length === 0) {
+      return null;
+    }
+    
+    // Convert tracking numbers to clickable links
+    const trackingLinks = uniqueTrackingNumbers.map(trackingNumber => {
+      return `[${trackingNumber}](https://shop.frodobots.com/a/Tracking?nums=${trackingNumber})`;
+    });
+    
+    return trackingLinks.join(', ');
   }
 
   /**

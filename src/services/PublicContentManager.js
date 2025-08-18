@@ -65,6 +65,11 @@ class PublicContentManager {
         description: 'Earthrovers personal bot information and guides',
         priority: 4
       },
+      earthrover_school: {
+        keywords: ['earthrover school', 'school', 'education', 'learning', 'mission', 'test drive', 'life points', 'LP', 'life point', 'points', 'credits', 'leaderboard'],
+        description: 'EarthRover School educational content and tutorials',
+        priority: 4
+      },
       ufb: {
         keywords: ['ufb', 'ultimate fighting', 'fighting', 'battle', 'combat'],
         description: 'Ultimate Fighting Bots information and guides',
@@ -381,8 +386,7 @@ INSTRUCTIONS:
 - Be friendly, conversational, and helpful
 - Keep responses concise but informative
 - If you need more context, ask the user to clarify their question
-- If the question is NOT clearly tied to a specific FrodoBots product (UFB, Earthrover, Earthrover School, SAM, Robots.Fun, or ET Fugi), FIRST ask the user which product their question is about and wait for their reply before attempting to answer.
-- Example clarification to ask: "To help me answer correctly, which product is this about? Options: UFB, Earthrover (Personal Bot), Earthrover School, SAM, Robots.Fun, or ET Fugi."
+- IMPORTANT: If the question is unclear or could apply to multiple products, simply ask: "To help me answer correctly, which product is this about? Options: UFB, EarthRover (Personal Bot), EarthRover School, SAM, Robots.Fun, or ET Fugi?"
 - Always maintain conversation context and refer to previous messages when relevant
 
 DISCORD CONTEXT:

@@ -37,7 +37,7 @@ class PublicArticleService {
       },
       earthrover_school: {
         url: "https://intercom.help/frodobots/en/collections/3762589-earthrovers-school",
-        keywords: ["earthrover", "school", "education", "learning", "students"],
+        keywords: ["earthrover", "school", "education", "learning", "students", "life points", "LP", "life point", "points", "credits", "mission", "test drive", "leaderboard"],
         description: "EarthRovers School content, educational resources and tutorials"
       },
       earthrover: {
@@ -179,7 +179,13 @@ class PublicArticleService {
       }
     }
     
-    // If no relevant content found, fall back to general content
+    // If no relevant content found, search ALL articles with content-level scoring
+    if (selectedContent.length === 0) {
+      console.log("[PublicArticleService] No category matches found, searching all articles");
+      selectedContent = this._searchAllArticles(queryLower, maxTokens);
+    }
+    
+    // Final fallback to general content
     if (selectedContent.length === 0) {
       selectedContent = this._getFallbackContent(maxTokens);
     }
@@ -187,84 +193,290 @@ class PublicArticleService {
     return this._formatContentForAI(selectedContent, query);
   }
 
-  // NEW: Get relevant categories based on query
+  // REVOLUTIONARY: Skip category filtering entirely - analyze ALL content directly
   _getRelevantCategories(query) {
-    const categoryScores = {};
+    // Instead of trying to predict which categories might be relevant,
+    // we'll search ALL categories and let the content-level scoring decide.
+    // This eliminates the keyword prediction problem entirely!
     
-    for (const [category, config] of Object.entries(this.CATEGORY_CONFIG)) {
-      let score = 0;
-      
-      // Check keyword matches
-      for (const keyword of config.keywords) {
-        if (query.includes(keyword)) {
-          score += 2; // Higher weight for keyword matches
-        }
-      }
-      
-      // Check for product-specific terms
-      if (query.includes('earthrover') && category.includes('earthrover')) {
-        score += 3;
-      }
-      if (query.includes('ufb') && category === 'ufb') {
-        score += 3;
-      }
-      if (query.includes('sam') && category === 'sam') {
-        score += 3;
-      }
-      
-      // Check for question types
-      if (query.includes('how') || query.includes('what') || query.includes('why')) {
-        if (category === 'faq' || category === 'troubleshooting') {
-          score += 1;
-        }
-      }
-      
-      if (query.includes('problem') || query.includes('issue') || query.includes('error')) {
-        if (category === 'troubleshooting') {
-          score += 2;
-        }
-      }
-      
-      if (score > 0) {
-        categoryScores[category] = score;
-      }
-    }
-    
-    // Return top 3 most relevant categories
-    return Object.entries(categoryScores)
-      .sort(([,a], [,b]) => b - a)
-      .slice(0, 3)
-      .map(([category]) => category);
+    console.log("[PublicArticleService] Using content-driven approach - analyzing all categories");
+    return Object.keys(this.CATEGORY_CONFIG);
   }
 
-  // NEW: Calculate relevance score for an article
+
+
+  // SMART: Content-driven relevance scoring without keyword dependency
   _calculateRelevanceScore(query, article) {
     let score = 0;
     const content = article.content.toLowerCase();
     const title = article.title.toLowerCase();
+    const queryLower = query.toLowerCase();
     
-    // Title matches get higher weight
-    const queryWords = query.split(' ');
-    for (const word of queryWords) {
-      if (word.length > 2 && title.includes(word)) {
-        score += 3;
-      }
-      if (word.length > 2 && content.includes(word)) {
-        score += 1;
+    // 1. EXACT MATCHES (highest confidence)
+    if (content.includes(queryLower) || title.includes(queryLower)) {
+      score += 20; // Very high confidence
+    }
+    
+    // 2. INTELLIGENT WORD ANALYSIS
+    const queryWords = this._extractMeaningfulWords(queryLower);
+    const contentWords = this._extractMeaningfulWords(content);
+    const titleWords = this._extractMeaningfulWords(title);
+    
+    // Calculate word overlap with smart weighting
+    const titleOverlap = this._calculateWordOverlap(queryWords, titleWords);
+    const contentOverlap = this._calculateWordOverlap(queryWords, contentWords);
+    
+    score += titleOverlap * 8;  // Titles are highly relevant
+    score += contentOverlap * 3; // Content matches are good
+    
+    // 3. CONTEXTUAL PATTERN MATCHING
+    const contextScore = this._analyzeContentContext(queryLower, content, title);
+    score += contextScore;
+    
+    // 4. SEMANTIC DENSITY ANALYSIS
+    const densityScore = this._calculateSemanticDensity(queryWords, content, title);
+    score += densityScore;
+    
+    // 5. QUESTION-ANSWER MATCHING
+    const qaScore = this._analyzeQuestionAnswerFit(queryLower, content, title);
+    score += qaScore;
+    
+    return score;
+  }
+
+  // Extract meaningful words (filter out common words)
+  _extractMeaningfulWords(text) {
+    const commonWords = new Set([
+      'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
+      'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did',
+      'will', 'would', 'could', 'should', 'can', 'may', 'might', 'must', 'shall',
+      'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they',
+      'my', 'your', 'his', 'her', 'its', 'our', 'their', 'me', 'him', 'her', 'us', 'them'
+    ]);
+    
+    return text.split(/\s+/)
+      .map(word => word.replace(/[^\w]/g, ''))
+      .filter(word => word.length > 2 && !commonWords.has(word))
+      .filter(word => word.length > 0);
+  }
+
+  // Calculate meaningful word overlap between query and content
+  _calculateWordOverlap(queryWords, contentWords) {
+    if (queryWords.length === 0) return 0;
+    
+    const contentWordSet = new Set(contentWords);
+    let matches = 0;
+    
+    for (const queryWord of queryWords) {
+      if (contentWordSet.has(queryWord)) {
+        matches++;
+      } else {
+        // Check for partial matches (handles plurals, etc.)
+        for (const contentWord of contentWords) {
+          if (this._areWordsSimilar(queryWord, contentWord)) {
+            matches += 0.7; // Partial credit
+            break;
+          }
+        }
       }
     }
     
-    // Exact phrase matches
-    if (content.includes(query)) {
-      score += 5;
+    return (matches / queryWords.length) * 10; // Normalize to 0-10 scale
+  }
+
+  // Check if two words are similar (handles plurals, tenses, etc.)
+  _areWordsSimilar(word1, word2) {
+    // Handle common variations
+    const normalize = (word) => {
+      return word.replace(/s$/, '') // plurals
+                 .replace(/ed$/, '') // past tense
+                 .replace(/ing$/, '') // present participle
+                 .replace(/er$/, '') // comparative
+                 .replace(/est$/, ''); // superlative
+    };
+    
+    const norm1 = normalize(word1);
+    const norm2 = normalize(word2);
+    
+    // Check if one is contained in the other or vice versa
+    return norm1.includes(norm2) || norm2.includes(norm1) || 
+           norm1 === norm2 ||
+           Math.abs(norm1.length - norm2.length) <= 2 && this._calculateEditDistance(norm1, norm2) <= 2;
+  }
+
+  // Simple edit distance for typo tolerance
+  _calculateEditDistance(str1, str2) {
+    const dp = Array(str1.length + 1).fill().map(() => Array(str2.length + 1).fill(0));
+    
+    for (let i = 0; i <= str1.length; i++) dp[i][0] = i;
+    for (let j = 0; j <= str2.length; j++) dp[0][j] = j;
+    
+    for (let i = 1; i <= str1.length; i++) {
+      for (let j = 1; j <= str2.length; j++) {
+        if (str1[i-1] === str2[j-1]) {
+          dp[i][j] = dp[i-1][j-1];
+        } else {
+          dp[i][j] = Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]) + 1;
+        }
+      }
     }
     
-    // Category relevance
-    if (article.category && query.includes(article.category)) {
-      score += 2;
+    return dp[str1.length][str2.length];
+  }
+
+  // Analyze content context and patterns
+  _analyzeContentContext(query, content, title) {
+    let score = 0;
+    
+    // Question type analysis
+    const isQuestion = /^(what|how|why|when|where|who|can|do|does|is|are)\b/i.test(query);
+    
+    if (isQuestion) {
+      // Boost content that looks like answers
+      if (content.includes('answer') || content.includes('solution') || 
+          title.includes('about') || title.includes('guide') ||
+          content.includes('step') || content.includes('follow')) {
+        score += 5;
+      }
+    }
+    
+    // Problem-solving context
+    const isProblem = /\b(problem|issue|error|broken|not working|help|fix|trouble)\b/i.test(query);
+    
+    if (isProblem) {
+      if (content.includes('troubleshoot') || content.includes('solve') ||
+          content.includes('fix') || content.includes('resolve') ||
+          title.includes('troubleshoot') || title.includes('fix')) {
+        score += 7;
+      }
+    }
+    
+    // How-to context
+    if (query.includes('how to') || query.includes('how do')) {
+      if (content.includes('step') || content.includes('guide') ||
+          content.includes('tutorial') || content.includes('instruction') ||
+          title.includes('how to') || title.includes('guide')) {
+        score += 6;
+      }
     }
     
     return score;
+  }
+
+  // Calculate semantic density (how concentrated the relevant terms are)
+  _calculateSemanticDensity(queryWords, content, title) {
+    if (queryWords.length === 0) return 0;
+    
+    const titleWords = title.split(/\s+/).length;
+    const contentWords = content.split(/\s+/).length;
+    
+    let titleDensity = 0;
+    let contentDensity = 0;
+    
+    for (const queryWord of queryWords) {
+      // Count occurrences in title and content
+      const titleMatches = (title.match(new RegExp(queryWord, 'gi')) || []).length;
+      const contentMatches = (content.match(new RegExp(queryWord, 'gi')) || []).length;
+      
+      if (titleWords > 0) titleDensity += titleMatches / titleWords;
+      if (contentWords > 0) contentDensity += contentMatches / contentWords;
+    }
+    
+    return (titleDensity * 10) + (contentDensity * 3); // Title density weighted higher
+  }
+
+  // Analyze how well content answers the specific question
+  _analyzeQuestionAnswerFit(query, content, title) {
+    let score = 0;
+    
+    // Extract question type and key terms
+    const questionWords = query.match(/^(what|how|why|when|where|who|can|do|does|is|are)\b/i);
+    
+    if (questionWords) {
+      const questionType = questionWords[0].toLowerCase();
+      
+      switch (questionType) {
+        case 'what':
+          if (content.includes('definition') || content.includes(' is ') || 
+              title.includes('about') || title.includes('what is')) {
+            score += 4;
+          }
+          break;
+        case 'how':
+          if (content.includes('step') || content.includes('process') ||
+              content.includes('method') || title.includes('how to')) {
+            score += 4;
+          }
+          break;
+        case 'why':
+          if (content.includes('because') || content.includes('reason') ||
+              content.includes('cause') || content.includes('purpose')) {
+            score += 4;
+          }
+          break;
+        case 'when':
+          if (content.includes('time') || content.includes('date') ||
+              content.includes('schedule') || content.includes('timing')) {
+            score += 4;
+          }
+          break;
+        case 'where':
+          if (content.includes('location') || content.includes('place') ||
+              content.includes('find') || content.includes('access')) {
+            score += 4;
+          }
+          break;
+      }
+    }
+    
+    return score;
+  }
+
+
+
+  // NEW: Search all articles when categories fail
+  _searchAllArticles(query, maxTokens) {
+    console.log("[PublicArticleService] Performing comprehensive search across all articles");
+    
+    const allArticles = [];
+    
+    // Collect all articles from all categories
+    for (const category in this.categorizedContent) {
+      if (this.categorizedContent[category]) {
+        allArticles.push(...this.categorizedContent[category]);
+      }
+    }
+    
+    if (allArticles.length === 0) {
+      console.log("[PublicArticleService] No articles available for comprehensive search");
+      return [];
+    }
+    
+    // Score all articles using our enhanced scoring
+    const scoredArticles = allArticles.map(article => ({
+      ...article,
+      relevanceScore: this._calculateRelevanceScore(query, article)
+    })).filter(article => article.relevanceScore > 0) // Only include articles with some relevance
+      .sort((a, b) => b.relevanceScore - a.relevanceScore);
+    
+    console.log(`[PublicArticleService] Found ${scoredArticles.length} relevant articles out of ${allArticles.length} total`);
+    
+    // Select top articles within token limit
+    const selectedContent = [];
+    let totalTokens = 0;
+    
+    for (const article of scoredArticles) {
+      const articleTokens = this._estimateTokens(article.content);
+      if (totalTokens + articleTokens <= maxTokens) {
+        selectedContent.push(article);
+        totalTokens += articleTokens;
+        console.log(`[PublicArticleService] Selected article: "${article.title}" (score: ${article.relevanceScore})`);
+      } else {
+        break;
+      }
+    }
+    
+    return selectedContent;
   }
 
   // NEW: Get fallback content when no specific matches
