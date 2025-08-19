@@ -78,7 +78,7 @@ class TicketButtonHandler {
           break;
         }
         case 'category_hardware': {
-          responseContent = "✅ **Hardware Issue** selected!\n\n🔧 **Hardware Support Instructions:**\n\nFor hardware issues, our support team will need to assist you directly. Please describe your hardware problem and we'll get you connected with a technician.";
+          responseContent = "✅ **Hardware Issue** selected!\n\n**Hardware Support Instructions:**\nFor hardware issues, our support team will need to assist you directly. Please provide:\n\n**1. Bot ID (3-word code)** - Provide the 3-word code of your bot (e.g., silver fox echo) (required)\n**2. Problem Description** - Describe your hardware problem in detail\n\nOnce you provide this information, we'll get you connected with a technician.";
           break;
         }
         case 'category_bug': {
