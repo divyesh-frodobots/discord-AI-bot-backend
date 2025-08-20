@@ -285,6 +285,18 @@ app.get('/', (req, res) => {
                         <input type="text" id="channelName" name="channelName" 
                                placeholder="general-chat">
                     </div>
+                    <div class="form-group">
+                        <label for="products">Products (Required):</label>
+                        <select id="products" name="products" multiple size="6" required>
+                            <option value="earthrover">earthrover</option>
+                            <option value="earthrover_school">earthrover_school</option>
+                            <option value="ufb">ufb</option>
+                            <option value="sam">sam</option>
+                            <option value="robotsfun">robotsfun</option>
+                            <option value="et_fugi">et_fugi</option>
+                        </select>
+                        <small style="color: #6c757d;">Hold Ctrl/Cmd to select multiple</small>
+                    </div>
                     <button type="submit" class="btn btn-success">Add Channel</button>
                 </form>
             </div>
@@ -344,8 +356,14 @@ app.get('/', (req, res) => {
                 ...credentials,
                 guildId: currentGuild,
                 channelId: formData.get('channelId'),
-                channelName: formData.get('channelName')
+                channelName: formData.get('channelName'),
+                products: formData.getAll('products')
             };
+
+            if (!channelData.products || channelData.products.length === 0) {
+                showAlert('Please select at least one product.', 'error');
+                return;
+            }
             
             try {
                 const response = await fetch('/api/channels/add', {
@@ -455,7 +473,8 @@ app.get('/', (req, res) => {
                             </div>
                             <div class="channel-meta">
                                 Added: \${new Date(channel.addedAt).toLocaleDateString()} | 
-                                Name: \${channel.name || 'N/A'}
+                                Name: \${channel.name || 'N/A'} | 
+                                Products: \${(channel.products && channel.products.length) ? channel.products.join(', ') : 'None'}
                             </div>
                         </div>
                         <button class="btn btn-danger" onclick="removeChannel('\${channel.channelId}')">Remove</button>
@@ -563,7 +582,7 @@ app.post('/api/channels', authenticateUser, async (req, res) => {
 // Add a channel
 app.post('/api/channels/add', authenticateUser, async (req, res) => {
   try {
-    const { guildId, channelId, channelName } = req.body;
+    const { guildId, channelId, channelName, products } = req.body;
     
     if (!guildId || !channelId) {
       return res.status(400).json({ error: 'Guild ID and Channel ID are required' });
@@ -574,9 +593,19 @@ app.post('/api/channels/add', authenticateUser, async (req, res) => {
       return res.status(400).json({ error: 'Invalid channel ID format. Must be 17-19 digits.' });
     }
 
+    // Validate products list if provided
+    const allowedProducts = ['earthrover','earthrover_school','ufb','sam','robotsfun','et_fugi'];
+    const sanitizedProducts = Array.isArray(products)
+      ? products.filter(p => allowedProducts.includes(p))
+      : [];
+    if (sanitizedProducts.length === 0) {
+      return res.status(400).json({ error: 'At least one valid product is required' });
+    }
+
     const success = await dynamicChannelService.addPublicChannel(guildId, channelId, {
       name: channelName,
-      addedBy: 'web-admin'
+      addedBy: 'web-admin',
+      products: sanitizedProducts
     });
 
     if (success) {
@@ -609,6 +638,41 @@ app.post('/api/channels/remove', authenticateUser, async (req, res) => {
   } catch (error) {
     console.error('Error removing channel:', error);
     res.status(500).json({ error: 'Failed to remove channel' });
+  }
+});
+
+// Edit a channel
+app.post('/api/channels/edit', authenticateUser, async (req, res) => {
+  try {
+    const { guildId, channelId, channelName, products } = req.body;
+    if (!guildId || !channelId) {
+      return res.status(400).json({ error: 'Guild ID and Channel ID are required' });
+    }
+
+    const allowedProducts = ['earthrover','earthrover_school','ufb','sam','robotsfun','et_fugi'];
+    const sanitizedProducts = Array.isArray(products)
+      ? products.filter(p => allowedProducts.includes(p))
+      : [];
+    if (sanitizedProducts.length === 0) {
+      return res.status(400).json({ error: 'At least one valid product is required' });
+    }
+
+    const result = await dynamicChannelService.updatePublicChannel(guildId, channelId, {
+      name: channelName,
+      products: sanitizedProducts
+    });
+
+    if (!result.success) {
+      if (result.reason === 'not_found') {
+        return res.status(404).json({ error: 'Channel not found' });
+      }
+      return res.status(500).json({ error: 'Failed to update channel' });
+    }
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Error editing channel:', error);
+    res.status(500).json({ error: 'Failed to edit channel' });
   }
 });
 
