@@ -231,6 +231,39 @@ app.get('/', (req, res) => {
         .status-active { background-color: #28a745; }
         .status-static { background-color: #6c757d; }
         .status-dynamic { background-color: #007bff; }
+
+        /* Product selector */
+        .product-search {
+            width: 100%;
+            padding: 12px 14px;
+            border: 2px solid #e1e5e9;
+            border-radius: 10px;
+            font-size: 16px;
+            margin-bottom: 12px;
+            transition: border-color 0.2s ease;
+        }
+        .product-search:focus { border-color: #667eea; outline: none; }
+
+        .product-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 16px;
+        }
+        .product-card {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 18px 20px;
+            border: 1px solid #e1e5e9;
+            border-radius: 14px;
+            background: #fafbfc;
+            min-height: 96px;
+            box-shadow: 0 1px 0 rgba(0,0,0,0.02);
+            transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+        }
+        .product-card:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.06); background: #ffffff; }
+        .product-checkbox { width: 18px; height: 18px; accent-color: #667eea; }
+        .product-title { font-weight: 700; font-size: 18px; color: #202124; line-height: 1.25; }
     </style>
 </head>
 <body>
@@ -286,16 +319,10 @@ app.get('/', (req, res) => {
                                placeholder="general-chat">
                     </div>
                     <div class="form-group">
-                        <label for="products">Products (Required):</label>
-                        <select id="products" name="products" multiple size="6" required>
-                            <option value="earthrover">earthrover</option>
-                            <option value="earthrover_school">earthrover_school</option>
-                            <option value="ufb">ufb</option>
-                            <option value="sam">sam</option>
-                            <option value="robotsfun">robotsfun</option>
-                            <option value="et_fugi">et_fugi</option>
-                        </select>
-                        <small style="color: #6c757d;">Hold Ctrl/Cmd to select multiple</small>
+                        <label>Products (Required):</label>
+                        <input type="text" id="productSearch" class="product-search" placeholder="Search products...">
+                        <div id="productGrid" class="product-grid"></div>
+                        <input type="hidden" name="products" id="productsHidden" required>
                     </div>
                     <button type="submit" class="btn btn-success">Add Channel</button>
                 </form>
@@ -317,6 +344,14 @@ app.get('/', (req, res) => {
     <script>
         let currentGuild = '';
         let credentials = {};
+        const availableProducts = [
+            { key: 'earthrover', label: 'EarthRover (Personal Bot)' },
+            { key: 'earthrover_school', label: 'EarthRover School' },
+            { key: 'ufb', label: 'UFB (Ultimate Fighting Bots)' },
+            { key: 'sam', label: 'SAM' },
+            { key: 'robotsfun', label: 'Robots.Fun' },
+            { key: 'et_fugi', label: 'ET Fugi' }
+        ];
 
         // Login form handler
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
@@ -352,12 +387,16 @@ app.get('/', (req, res) => {
             e.preventDefault();
             
             const formData = new FormData(e.target);
+            // Collect selected products from checkbox grid
+            const selectedProducts = Array.from(document.querySelectorAll('#productGrid input[type="checkbox"]:checked')).map(el => el.value);
+            document.getElementById('productsHidden').value = selectedProducts.join(',');
+
             const channelData = {
                 ...credentials,
                 guildId: currentGuild,
                 channelId: formData.get('channelId'),
                 channelName: formData.get('channelName'),
-                products: formData.getAll('products')
+                products: selectedProducts
             };
 
             if (!channelData.products || channelData.products.length === 0) {
@@ -385,6 +424,28 @@ app.get('/', (req, res) => {
                 showAlert('Failed to add channel. Please try again.', 'error');
             }
         });
+
+        // Initialize product grid UI
+        function renderProductGrid(filterText = '') {
+            const grid = document.getElementById('productGrid');
+            if (!grid) return;
+            grid.innerHTML = '';
+            const term = (filterText || '').toLowerCase();
+            const items = availableProducts.filter(p => !term || p.label.toLowerCase().includes(term) || p.key.includes(term));
+            items.forEach(p => {
+                const id = 'prod_' + p.key;
+                const card = document.createElement('label');
+                card.className = 'product-card';
+                card.innerHTML = '<input class="product-checkbox" type="checkbox" value="' + p.key + '" id="' + id + '"><span class="product-title">' + p.label + '</span>';
+                grid.appendChild(card);
+            });
+        }
+
+        renderProductGrid();
+        const searchInput = document.getElementById('productSearch');
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => renderProductGrid(e.target.value));
+        }
 
         // Load guilds
         async function loadGuilds() {
