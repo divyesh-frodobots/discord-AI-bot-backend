@@ -421,8 +421,8 @@ async function generateAIResponse(context) {
   }
   // END SHOPIFY INTEGRATION
 
-  // Generate thread-specific conversation key
-  const conversationKey = getConversationKey(context.message);
+  // Generate conversation key (thread-aware and channel-scoped)
+  const conversationKey = getConversationKey(context);
 
   try {
     // Check if PublicArticleService is properly initialized
@@ -448,17 +448,55 @@ async function generateAIResponse(context) {
       return;
     }
 
-    // Get relevant content for the user's query
-    const relevantContent = await publicArticleService.getRelevantContent(context.message.content);
+    // Determine allowed products for this channel (parent if thread)
+    const guildId = context.message.guild.id;
+    const targetChannelId = context.message.channel.isThread()
+      ? context.message.channel.parent.id
+      : context.message.channel.id;
+    const channelDetails = await dynamicChannelService.getChannelDetails(guildId);
+    const channelInfo = channelDetails.find(c => c.channelId === targetChannelId);
+    const allowedProducts = Array.isArray(channelInfo?.products) ? channelInfo.products : [];
+    console.log(`🔍 Allowed products for ${targetChannelId}: ${allowedProducts}`);
 
-    // Create enhanced system prompt with query-specific content
-    const enhancedSystemPrompt = publicContentManager.createEnhancedSystemPrompt(
+    // If the user mentioned a product, narrow to that product when possible
+    let effectiveAllowedProducts = allowedProducts;
+    try {
+      const analysis = publicContentManager.analyzeQuery(context.message.content);
+      const mentioned = Array.isArray(analysis?.productMentions) ? analysis.productMentions : [];
+      if (mentioned.length > 0) {
+        if (allowedProducts.length > 0) {
+          const narrowed = allowedProducts.filter(p => mentioned.includes(p));
+          if (narrowed.length > 0) effectiveAllowedProducts = narrowed;
+        } else {
+          effectiveAllowedProducts = mentioned;
+        }
+      }
+    } catch {}
+
+    // Get relevant content scoped to allowed products (if any)
+    const relevantContent = await publicArticleService.getRelevantContent(
       context.message.content,
-      relevantContent
+      15000,
+      effectiveAllowedProducts
     );
 
+    // Create enhanced system prompt with query-specific content
+    const productConstraint = (effectiveAllowedProducts && effectiveAllowedProducts.length)
+      ? `IMPORTANT: This channel is limited to these products only: ${effectiveAllowedProducts.join(', ')}. If the question is about another product, ask the user to switch to the correct product.`
+      : '';
+
+    const enhancedSystemPrompt = publicContentManager.createEnhancedSystemPrompt(
+      context.message.content,
+      relevantContent,
+      effectiveAllowedProducts
+    );
+
+    const finalSystemPrompt = productConstraint
+      ? `${productConstraint}\n\n${enhancedSystemPrompt}`
+      : enhancedSystemPrompt;
+
     // Initialize conversation with enhanced system prompt
-    await publicConversationService.initializeConversation(conversationKey, enhancedSystemPrompt, false);
+    await publicConversationService.initializeConversation(conversationKey, finalSystemPrompt, false);
     publicConversationService.addUserMessage(conversationKey, context.message.content, false);
 
     // Get conversation history and generate response
@@ -503,16 +541,19 @@ async function generateAIResponse(context) {
 /**
  * Generate conversation key based on message context
  */
-function getConversationKey(message) {
+function getConversationKey(context) {
+  const message = context.message;
   const userId = message.author.id;
+  const target = context.targetChannel || message.channel;
 
-  if (message.channel.isThread()) {
-    const parentChannelId = message.channel.parentId;
-    const threadId = message.channel.id;
+  if (target.isThread && target.isThread()) {
+    const parentChannelId = target.parentId || (target.parent && target.parent.id);
+    const threadId = target.id;
     return `user_${userId}:${parentChannelId}:${threadId}`;
-  } else {
-    return `user_${userId}`;
   }
+  // Include channel id to avoid cross-channel context mixing
+  const channelId = target.id;
+  return `user_${userId}:${channelId}`;
 }
 
 /**
@@ -586,7 +627,7 @@ async function handleNormalResponse(context, aiResponse) {
 
   // Add to conversation history if valid
   if (aiResponse.isValid) {
-    const conversationKey = getConversationKey(context.message);
+    const conversationKey = getConversationKey(context);
     publicConversationService.addAssistantMessage(conversationKey, aiResponse.response, false);
   }
 

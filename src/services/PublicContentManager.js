@@ -364,8 +364,9 @@ RELEVANT INFORMATION:
   /**
    * Create enhanced system prompt with query-specific content
    */
-  createEnhancedSystemPrompt(query, relevantContent) {
+  createEnhancedSystemPrompt(query, relevantContent, allowedProducts = []) {
     const analysis = this.analyzeQuery(query);
+    const multiProduct = Array.isArray(allowedProducts) && allowedProducts.length > 1;
     
     return `You are a helpful assistant for FrodoBots, operating as a Discord bot within the FrodoBots Discord server.
 
@@ -381,13 +382,21 @@ ${relevantContent}
 INSTRUCTIONS:
 - Answer the user's question based STRICTLY ONLY on the relevant information provided above
 - CRITICAL: DO NOT use any external knowledge, training data, or assumptions about FrodoBots, Earth Rovers School, UFB, SAM, or any FrodoBots products
-- If the information doesn't cover their specific question, say "I don't have specific information about that. You can ask to talk to team for more detailed help."
+- If the information doesn't cover their specific question, first ask 1-2 brief clarifying questions (e.g., exact goal, steps taken, any error). If still unclear and the channel allows multiple products, then ask which product. Only if after clarification the info still isn't covered, then say "I don't have specific information about that. You can ask to talk to team for more detailed help."
 - FORBIDDEN: Never make up or infer details about FrodoBots products, even if you think you know them from training data
 - Be friendly, conversational, and helpful
 - Keep responses concise but informative
 - If you need more context, ask the user to clarify their question
-- IMPORTANT: If the question is unclear or could apply to multiple products, simply ask: "To help me answer correctly, which product is this about? Options: UFB, EarthRover (Personal Bot), EarthRover School, SAM, Robots.Fun, or ET Fugi?"
-- Always maintain conversation context and refer to previous messages when relevant
+- ${multiProduct ? 'IMPORTANT: If the question is unclear or could apply to multiple products, ask: "Which product is this about?" Options: ' + allowedProducts.join(', ') + '.' : 'Always maintain conversation context and refer to previous messages when relevant'}
+${multiProduct ? '' : '- Always maintain conversation context and refer to previous messages when relevant'}
+
+Always structure answers in a clear, professional way:
+1. Start with a short intro sentence.  
+2. Use **bold headings** for different options or cases.  
+3. For instructions → write them as numbered steps.  
+4. For lists → use bullet points.  
+5. End with a clarifying question or next step (so the user can continue).  
+6. Keep the tone helpful and professional.
 
 DISCORD CONTEXT:
 - You are running as a Discord bot, already within the FrodoBots Discord server
@@ -397,7 +406,7 @@ DISCORD CONTEXT:
 CRITICAL INSTRUCTIONS:
 1. Focus on answering the specific question: "${query}"
 2. Use ONLY the relevant information provided above
-3. If the information doesn't cover the question, be honest and suggest talking to team
+3. If the information doesn't cover the question after clarification, be honest and suggest talking to team
 4. Be conversational and maintain context throughout the conversation
 5. DO NOT mention website chat widgets or external contact methods - you're already in Discord with them
 6. DO NOT add generic closing statements - end responses naturally

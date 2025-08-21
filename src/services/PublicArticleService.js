@@ -4,12 +4,8 @@ import { buildHumanHelpPrompt } from './ArticleService.js';
 
 class PublicArticleService {
   constructor() {
-    this.cachedArticles = {};
-    this.lastFetched = {};
     this.cachedContent = null; // Cache the combined content
     this.lastContentFetch = 0;
-    this.discoveredUrls = new Set(); // Track discovered URLs to avoid duplicates
-    this.visitedUrls = new Set(); // Track visited URLs to avoid infinite loops
 
     // NEW: Structured content storage
     this.categorizedContent = {};
@@ -17,16 +13,16 @@ class PublicArticleService {
     this.contentIndex = {};
 
     // Configuration
-    this.BASE_URL = "https://intercom.help/frodobots/en/";
     this.REFRESH_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
     this.MAX_TOKENS = 40000;
     this.CONTENT_CACHE_DURATION = this.REFRESH_INTERVAL;
-    this.MAX_DEPTH = 7;
-    this.MAX_URLS = 200;
-    this.CONCURRENT_REQUESTS = 3;
 
     // Allow disabling crawling via env
     this.DISABLE_CRAWL = process.env.DISABLE_PUBLIC_ARTICLE_CRAWL === 'true';
+
+    // NEW: Configurable limits for category article fetching
+    this.CATEGORY_ARTICLE_LIMIT = parseInt(process.env.PUBLIC_CATEGORY_ARTICLE_LIMIT || '100', 10);
+    this.FETCH_CONCURRENCY = parseInt(process.env.PUBLIC_FETCH_CONCURRENCY || '4', 10);
 
     // NEW: Organized category URLs with better structure
     this.CATEGORY_CONFIG = {
@@ -140,7 +136,7 @@ class PublicArticleService {
   }
 
   // NEW: Intelligent content selection based on query
-  async getRelevantContent(query, maxTokens = 15000) {
+  async getRelevantContent(query, maxTokens = 15000, allowedProducts = null) {
     // Check if we have categorized content, if not, return fallback
     if (!this.categorizedContent || Object.keys(this.categorizedContent).length === 0) {
       console.log("[PublicArticleService] No categorized content available, using fallback");
@@ -148,9 +144,28 @@ class PublicArticleService {
     }
 
     const queryLower = query.toLowerCase();
-    
-    // Determine relevant categories based on query
-    const relevantCategories = this._getRelevantCategories(queryLower);
+    console.log('[PublicArticleService] getRelevantContent:', {
+      querySnippet: queryLower.slice(0, 80),
+      maxTokens,
+      allowedProducts: Array.isArray(allowedProducts) ? allowedProducts : null
+    });
+
+    // Determine categories to search
+    let relevantCategories;
+    if (Array.isArray(allowedProducts) && allowedProducts.length > 0) {
+      // Use only the selected product categories that exist in config
+      relevantCategories = allowedProducts.filter(key => this.CATEGORY_CONFIG[key]);
+      console.log('[PublicArticleService] Using allowed product categories:', relevantCategories);
+      // If nothing valid, fall back to query-driven selection
+      if (relevantCategories.length === 0) {
+        console.log('[PublicArticleService] No valid product categories provided; falling back to query-driven category selection');
+        relevantCategories = this._getRelevantCategories(queryLower);
+      }
+    } else {
+      // Use query-driven selection (default behavior)
+      relevantCategories = this._getRelevantCategories(queryLower);
+    }
+    console.log('[PublicArticleService] Relevant categories to search:', relevantCategories);
     
     // Get content from relevant categories
     let selectedContent = [];
@@ -176,19 +191,33 @@ class PublicArticleService {
             break;
           }
         }
+        console.log(`[PublicArticleService] Category ${category}: selected ${selectedContent.length} articles so far (tokens ~${totalTokens})`);
       }
     }
     
-    // If no relevant content found, search ALL articles with content-level scoring
+    // If no relevant content found, search only within allowed categories when provided
     if (selectedContent.length === 0) {
-      console.log("[PublicArticleService] No category matches found, searching all articles");
-      selectedContent = this._searchAllArticles(queryLower, maxTokens);
+      if (Array.isArray(allowedProducts) && allowedProducts.length > 0) {
+        console.log("[PublicArticleService] No category match; searching within allowed product categories only");
+        selectedContent = this._searchArticlesAcross(queryLower, maxTokens, relevantCategories);
+      } else {
+        console.log("[PublicArticleService] No category matches found, searching all articles");
+        selectedContent = this._searchAllArticles(queryLower, maxTokens);
+      }
     }
     
-    // Final fallback to general content
+    // Final fallback: prefer within allowed categories if provided
     if (selectedContent.length === 0) {
-      selectedContent = this._getFallbackContent(maxTokens);
+      if (Array.isArray(allowedProducts) && allowedProducts.length > 0) {
+        console.log('[PublicArticleService] Using restricted fallback content');
+        selectedContent = this._getFallbackContent(maxTokens, relevantCategories);
+      } else {
+        console.log('[PublicArticleService] Using global fallback content');
+        selectedContent = this._getFallbackContent(maxTokens);
+      }
     }
+
+    console.log(`[PublicArticleService] Selected ${selectedContent.length} articles for prompt`);
     
     return this._formatContentForAI(selectedContent, query);
   }
@@ -479,13 +508,51 @@ class PublicArticleService {
     return selectedContent;
   }
 
+  // NEW: Search a subset of categories when restricted by products
+  _searchArticlesAcross(query, maxTokens, categoryKeys) {
+    console.log("[PublicArticleService] Searching within specific categories: ", categoryKeys);
+    const allArticles = [];
+    for (const category of categoryKeys) {
+      if (this.categorizedContent[category]) {
+        allArticles.push(...this.categorizedContent[category]);
+      }
+    }
+
+    if (allArticles.length === 0) {
+      console.log("[PublicArticleService] No articles available in restricted categories");
+      return [];
+    }
+
+    const scoredArticles = allArticles.map(article => ({
+      ...article,
+      relevanceScore: this._calculateRelevanceScore(query, article)
+    })).filter(article => article.relevanceScore > 0)
+      .sort((a, b) => b.relevanceScore - a.relevanceScore);
+
+    const selectedContent = [];
+    let totalTokens = 0;
+    for (const article of scoredArticles) {
+      const articleTokens = this._estimateTokens(article.content);
+      if (totalTokens + articleTokens <= maxTokens) {
+        selectedContent.push(article);
+        totalTokens += articleTokens;
+      } else {
+        break;
+      }
+    }
+    return selectedContent;
+  }
+
   // NEW: Get fallback content when no specific matches
-  _getFallbackContent(maxTokens) {
+  _getFallbackContent(maxTokens, categoryKeys = null) {
     const fallbackContent = [];
     let totalTokens = 0;
     
-    // Prioritize getting started and FAQ content
-    const priorityCategories = ['getting_started', 'faq', 'troubleshooting'];
+    // Prioritize common help categories; if restricted, use only within allowed categories
+    let priorityCategories = ['getting_started', 'faq', 'troubleshooting'];
+    if (Array.isArray(categoryKeys) && categoryKeys.length > 0) {
+      priorityCategories = categoryKeys;
+    }
     
     for (const category of priorityCategories) {
       if (this.categorizedContent[category]) {
@@ -621,18 +688,23 @@ ${article.content}
         }
       });
       
-      // Fetch content for the first 10 articles (limit to prevent excessive requests)
-      const limitedArticles = articles.slice(0, 10);
+      // Fetch content for up to CATEGORY_ARTICLE_LIMIT articles with limited concurrency
+      const limit = Math.max(1, Math.min(this.CATEGORY_ARTICLE_LIMIT, articles.length));
+      const limitedArticles = articles.slice(0, limit);
       const fetchedArticles = [];
-      
-      for (const article of limitedArticles) {
-        try {
-          const articleContent = await this._fetchStructuredArticle(article.url, article.category);
-          if (articleContent) {
-            fetchedArticles.push(articleContent);
+      const batchSize = Math.max(1, this.FETCH_CONCURRENCY);
+      for (let i = 0; i < limitedArticles.length; i += batchSize) {
+        const batch = limitedArticles.slice(i, i + batchSize);
+        const results = await Promise.all(batch.map(async (article) => {
+          try {
+            return await this._fetchStructuredArticle(article.url, article.category);
+          } catch (error) {
+            console.error(`Error fetching article ${article.url}:`, error.message);
+            return null;
           }
-        } catch (error) {
-          console.error(`Error fetching article ${article.url}:`, error.message);
+        }));
+        for (const res of results) {
+          if (res) fetchedArticles.push(res);
         }
       }
       
@@ -702,86 +774,7 @@ ${article.content}
     }
   }
 
-  async getAllArticleUrls() {
-    this.discoveredUrls.clear();
-    this.visitedUrls.clear();
-    const crawledPages = await this.crawlPages(this.BASE_URL);
-    const urls = [...new Set(crawledPages.map(page => page.url))];
-    return urls;
-  }
-
-  async crawlPages(startUrl, depth = 0, maxDepth = this.MAX_DEPTH) {
-    if (depth >= maxDepth || 
-        this.visitedUrls.size >= this.MAX_URLS || 
-        this.visitedUrls.has(startUrl)) {
-      return [];
-    }
-    this.visitedUrls.add(startUrl);
-    console.log(`Crawling: ${startUrl} (depth: ${depth}, visited: ${this.visitedUrls.size})`);
-    try {
-      const links = await this.extractLinksFromPage(startUrl);
-      let content = this.cachedArticles[startUrl];
-      if (!content) {
-        content = await this.fetchArticleText(startUrl);
-        if (content) {
-          this.cachedArticles[startUrl] = content;
-          this.lastFetched[startUrl] = Date.now();
-        }
-      }
-      const results = content ? [{ url: startUrl, content }] : [];
-      if (depth < maxDepth - 1 && links.length > 0) {
-        const batchSize = this.CONCURRENT_REQUESTS;
-        for (let i = 0; i < links.length && this.visitedUrls.size < this.MAX_URLS; i += batchSize) {
-          const batch = links.slice(i, i + batchSize);
-          const batchResults = await Promise.all(batch.map(link => this.crawlPages(link, depth + 1, maxDepth)));
-          for (const batchResult of batchResults) {
-            results.push(...batchResult);
-          }
-        }
-      }
-      return results;
-    } catch (error) {
-      console.error(`Error crawling ${startUrl}:`, error.message);
-      return [];
-    }
-  }
-
-  async extractLinksFromPage(url) {
-    try {
-      const { data } = await axios.get(url, {
-        timeout: 10000,
-        headers: {
-          "User-Agent": "Mozilla/5.0 (compatible; UFB-Bot/1.0)",
-        },
-      });
-      const $ = cheerio.load(data);
-      const links = [];
-      $('a[href]').each((index, element) => {
-        const href = $(element).attr("href");
-        if (href) {
-          let fullUrl;
-          if (href.startsWith("http")) {
-            fullUrl = href;
-          } else if (href.startsWith("/")) {
-            fullUrl = `https://intercom.help${href}`;
-          } else {
-            fullUrl = new URL(href, url).href;
-          }
-          const normalizedUrl = this.normalizeUrl(fullUrl);
-          if (this.isValidFrodoBotsUrl(normalizedUrl) && 
-              !this.discoveredUrls.has(normalizedUrl)) {
-            links.push(normalizedUrl);
-            this.discoveredUrls.add(normalizedUrl);
-          }
-        }
-      });
-      return [...new Set(links)];
-    } catch (err) {
-      console.error(`Error extracting links from ${url}:`, err.message);
-      return [];
-    }
-  }
-
+  // URL helpers (used by category fetcher)
   isValidFrodoBotsUrl(url) {
     try {
       const urlObj = new URL(url);
@@ -800,6 +793,8 @@ ${article.content}
       return url;
     }
   }
+
+  // Deprecated crawl methods removed as we now fetch categories directly
 
   async fetchArticleText(url) {
     try {
@@ -898,27 +893,7 @@ ${article.content}
     return content.slice(0, approxChars);
   }
 
-  async getCachedArticle(url) {
-    const now = Date.now();
-    if (
-      this.cachedArticles[url] &&
-      now - (this.lastFetched[url] || 0) < this.REFRESH_INTERVAL
-    ) {
-      return this.cachedArticles[url];
-    }
-    try {
-      const content = await this.fetchArticleText(url);
-      if (content) {
-        this.cachedArticles[url] = content;
-        this.lastFetched[url] = now;
-        return content;
-      }
-      return null;
-    } catch (err) {
-      console.error(`[PublicArticleService] Fetching article: ${url} ERROR`, err);
-      return null;
-    }
-  }
+  // Deprecated page-level cache removed
 
   // NEW: Enhanced system prompt with query-specific content
   async getSystemPrompt(query = null) {
