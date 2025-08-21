@@ -231,6 +231,39 @@ app.get('/', (req, res) => {
         .status-active { background-color: #28a745; }
         .status-static { background-color: #6c757d; }
         .status-dynamic { background-color: #007bff; }
+
+        /* Product selector */
+        .product-search {
+            width: 100%;
+            padding: 12px 14px;
+            border: 2px solid #e1e5e9;
+            border-radius: 10px;
+            font-size: 16px;
+            margin-bottom: 12px;
+            transition: border-color 0.2s ease;
+        }
+        .product-search:focus { border-color: #667eea; outline: none; }
+
+        .product-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 16px;
+        }
+        .product-card {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 18px 20px;
+            border: 1px solid #e1e5e9;
+            border-radius: 14px;
+            background: #fafbfc;
+            min-height: 96px;
+            box-shadow: 0 1px 0 rgba(0,0,0,0.02);
+            transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+        }
+        .product-card:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.06); background: #ffffff; }
+        .product-checkbox { width: 18px; height: 18px; accent-color: #667eea; }
+        .product-title { font-weight: 700; font-size: 18px; color: #202124; line-height: 1.25; }
     </style>
 </head>
 <body>
@@ -285,6 +318,12 @@ app.get('/', (req, res) => {
                         <input type="text" id="channelName" name="channelName" 
                                placeholder="general-chat">
                     </div>
+                    <div class="form-group">
+                        <label>Products (Required):</label>
+                        <input type="text" id="productSearch" class="product-search" placeholder="Search products...">
+                        <div id="productGrid" class="product-grid"></div>
+                        <input type="hidden" name="products" id="productsHidden" required>
+                    </div>
                     <button type="submit" class="btn btn-success">Add Channel</button>
                 </form>
             </div>
@@ -305,6 +344,14 @@ app.get('/', (req, res) => {
     <script>
         let currentGuild = '';
         let credentials = {};
+        const availableProducts = [
+            { key: 'earthrover', label: 'EarthRover (Personal Bot)' },
+            { key: 'earthrover_school', label: 'EarthRover School' },
+            { key: 'ufb', label: 'UFB (Ultimate Fighting Bots)' },
+            { key: 'sam', label: 'SAM' },
+            { key: 'robotsfun', label: 'Robots.Fun' },
+            { key: 'et_fugi', label: 'ET Fugi' }
+        ];
 
         // Login form handler
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
@@ -340,12 +387,22 @@ app.get('/', (req, res) => {
             e.preventDefault();
             
             const formData = new FormData(e.target);
+            // Collect selected products from checkbox grid
+            const selectedProducts = Array.from(document.querySelectorAll('#productGrid input[type="checkbox"]:checked')).map(el => el.value);
+            document.getElementById('productsHidden').value = selectedProducts.join(',');
+
             const channelData = {
                 ...credentials,
                 guildId: currentGuild,
                 channelId: formData.get('channelId'),
-                channelName: formData.get('channelName')
+                channelName: formData.get('channelName'),
+                products: selectedProducts
             };
+
+            if (!channelData.products || channelData.products.length === 0) {
+                showAlert('Please select at least one product.', 'error');
+                return;
+            }
             
             try {
                 const response = await fetch('/api/channels/add', {
@@ -367,6 +424,28 @@ app.get('/', (req, res) => {
                 showAlert('Failed to add channel. Please try again.', 'error');
             }
         });
+
+        // Initialize product grid UI
+        function renderProductGrid(filterText = '') {
+            const grid = document.getElementById('productGrid');
+            if (!grid) return;
+            grid.innerHTML = '';
+            const term = (filterText || '').toLowerCase();
+            const items = availableProducts.filter(p => !term || p.label.toLowerCase().includes(term) || p.key.includes(term));
+            items.forEach(p => {
+                const id = 'prod_' + p.key;
+                const card = document.createElement('label');
+                card.className = 'product-card';
+                card.innerHTML = '<input class="product-checkbox" type="checkbox" value="' + p.key + '" id="' + id + '"><span class="product-title">' + p.label + '</span>';
+                grid.appendChild(card);
+            });
+        }
+
+        renderProductGrid();
+        const searchInput = document.getElementById('productSearch');
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => renderProductGrid(e.target.value));
+        }
 
         // Load guilds
         async function loadGuilds() {
@@ -455,7 +534,8 @@ app.get('/', (req, res) => {
                             </div>
                             <div class="channel-meta">
                                 Added: \${new Date(channel.addedAt).toLocaleDateString()} | 
-                                Name: \${channel.name || 'N/A'}
+                                Name: \${channel.name || 'N/A'} | 
+                                Products: \${(channel.products && channel.products.length) ? channel.products.join(', ') : 'None'}
                             </div>
                         </div>
                         <button class="btn btn-danger" onclick="removeChannel('\${channel.channelId}')">Remove</button>
@@ -563,7 +643,7 @@ app.post('/api/channels', authenticateUser, async (req, res) => {
 // Add a channel
 app.post('/api/channels/add', authenticateUser, async (req, res) => {
   try {
-    const { guildId, channelId, channelName } = req.body;
+    const { guildId, channelId, channelName, products } = req.body;
     
     if (!guildId || !channelId) {
       return res.status(400).json({ error: 'Guild ID and Channel ID are required' });
@@ -574,9 +654,19 @@ app.post('/api/channels/add', authenticateUser, async (req, res) => {
       return res.status(400).json({ error: 'Invalid channel ID format. Must be 17-19 digits.' });
     }
 
+    // Validate products list if provided
+    const allowedProducts = ['earthrover','earthrover_school','ufb','sam','robotsfun','et_fugi'];
+    const sanitizedProducts = Array.isArray(products)
+      ? products.filter(p => allowedProducts.includes(p))
+      : [];
+    if (sanitizedProducts.length === 0) {
+      return res.status(400).json({ error: 'At least one valid product is required' });
+    }
+
     const success = await dynamicChannelService.addPublicChannel(guildId, channelId, {
       name: channelName,
-      addedBy: 'web-admin'
+      addedBy: 'web-admin',
+      products: sanitizedProducts
     });
 
     if (success) {
@@ -609,6 +699,41 @@ app.post('/api/channels/remove', authenticateUser, async (req, res) => {
   } catch (error) {
     console.error('Error removing channel:', error);
     res.status(500).json({ error: 'Failed to remove channel' });
+  }
+});
+
+// Edit a channel
+app.post('/api/channels/edit', authenticateUser, async (req, res) => {
+  try {
+    const { guildId, channelId, channelName, products } = req.body;
+    if (!guildId || !channelId) {
+      return res.status(400).json({ error: 'Guild ID and Channel ID are required' });
+    }
+
+    const allowedProducts = ['earthrover','earthrover_school','ufb','sam','robotsfun','et_fugi'];
+    const sanitizedProducts = Array.isArray(products)
+      ? products.filter(p => allowedProducts.includes(p))
+      : [];
+    if (sanitizedProducts.length === 0) {
+      return res.status(400).json({ error: 'At least one valid product is required' });
+    }
+
+    const result = await dynamicChannelService.updatePublicChannel(guildId, channelId, {
+      name: channelName,
+      products: sanitizedProducts
+    });
+
+    if (!result.success) {
+      if (result.reason === 'not_found') {
+        return res.status(404).json({ error: 'Channel not found' });
+      }
+      return res.status(500).json({ error: 'Failed to update channel' });
+    }
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Error editing channel:', error);
+    res.status(500).json({ error: 'Failed to edit channel' });
   }
 });
 

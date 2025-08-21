@@ -20,7 +20,7 @@
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
     "natural": "^8.1.0",
-    "openai": "^5.5.1",
+    "openai": "5.13.1",
     "redis": "^5.6.1",
     "shopify-api-node": "^3.15.0"
   }

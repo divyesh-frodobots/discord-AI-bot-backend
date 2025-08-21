@@ -43,21 +43,34 @@ CRITICAL URL FORMATTING:
 - Do NOT add any brackets, parentheses, or markdown formatting around URLs
 - Example: Use "Visit https://rovers.frodobots.com for more info" NOT "Visit [FrodoBots](https://rovers.frodobots.com) for more info"
 
+FORMATTING (Discord-friendly):
+- Start with a one-line answer when possible.
+- Use bold for key terms and short section headers.
+- Prefer bullet lists ("- ") over long paragraphs; max 6 bullets.
+- For procedures, use numbered steps (1., 2., 3.).
+- Group important links under a "Links:" bullet list with plain URLs (no markdown link syntax).
+- Keep paragraphs short; avoid walls of text.
+
 Always match your response length to the complexity and scope of what the user is asking. Don't over-explain simple questions, but provide thorough help for complex topics.`;
 
-      const strictMessages = [
-        {
-          role: "system",
-          content: intelligentSystemPrompt
-        },
-        ...messages
-      ];
+      // If a system message is already provided (e.g., from PublicContentManager or product-specific prompt),
+      // don't add another system prompt to avoid conflicting instructions.
+      const hasSystem = Array.isArray(messages) && messages[0] && messages[0].role === 'system';
+      const strictMessages = hasSystem
+        ? messages
+        : [
+            {
+              role: "system",
+              content: intelligentSystemPrompt
+            },
+            ...messages
+          ];
 
       const completion = await this.openai.chat.completions.create({
-        model: "gpt-4.1-nano",
+        model: "gpt-4.1-mini",
         messages: strictMessages,
         temperature: 0.7, // Slightly reduced for more focused responses
-        max_tokens: 500, // Reasonable limit that allows for both brief and comprehensive responses
+        max_tokens: 1200, // Allow more headroom for structured answers
         presence_penalty: 0.1, // Slightly reduce repetition
         frequency_penalty: 0.1 // Slightly reduce repetitive phrases
       });

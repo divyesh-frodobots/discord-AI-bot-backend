@@ -150,31 +150,48 @@ class ArticleService {
       let content = "";
       let mediaContent = "";
 
+      // Helper to inline anchor URLs directly where they appear
+      const inlineAnchors = (rootEl) => {
+        rootEl.find('a[href]').each((_, link) => {
+          const href = $(link).attr('href');
+          const text = $(link).text().trim();
+          if (!href) return;
+          let fullUrl;
+          if (href.startsWith('http')) {
+            fullUrl = href;
+          } else if (href.startsWith('/')) {
+            fullUrl = new URL(href, url).href;
+          } else {
+            fullUrl = new URL(href, url).href;
+          }
+          // Replace the anchor with "text: URL" so links only appear where they are referenced in content
+          $(link).replaceWith(`${text ? text + ': ' : ''}${fullUrl}`);
+        });
+      };
+
       // Try article tag first
       const articleElement = $("article");
       if (articleElement.length > 0) {
+        inlineAnchors(articleElement);
         content = articleElement.text();
-        mediaContent = this.extractMediaContent($, articleElement, url);
       } else {
         // Try main content area
         const mainElement = $("main");
         if (mainElement.length > 0) {
+          inlineAnchors(mainElement);
           content = mainElement.text();
-          mediaContent = this.extractMediaContent($, mainElement, url);
         } else {
           // Try body content
           const bodyElement = $("body");
+          inlineAnchors(bodyElement);
           content = bodyElement.text();
-          mediaContent = this.extractMediaContent($, bodyElement, url);
         }
       }
 
-      // Clean up the text, convert URLs to clickable format, and combine with media content
+      // Clean up the text and convert any markdown links if present (rare after inline replacement)
       const cleanText = content.replace(/\s+/g, " ").trim();
       const textWithClickableUrls = this.cleanUrlsForDiscord(cleanText);
-      const combinedContent = textWithClickableUrls + (mediaContent ? "\n\n" + mediaContent : "");
-
-      return combinedContent;
+      return textWithClickableUrls;
     } catch (err) {
       console.error(`Error fetching article ${url}:`, err.message);
       return null;

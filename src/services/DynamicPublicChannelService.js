@@ -27,9 +27,11 @@ class DynamicPublicChannelService {
         addedAt: new Date().toISOString(),
         addedBy: channelInfo.addedBy || 'admin',
         name: channelInfo.name || '',
-        active: true
+        active: true,
+        products: Array.isArray(channelInfo.products) ? channelInfo.products : []
       };
 
+      console.log('[Redis] Saving public channel payload:', channelData);
       await redis.hSet(key, channelId, JSON.stringify(channelData));
       console.log(`✅ Added dynamic public channel ${channelId} for guild ${guildId}`);
       return true;

@@ -82,7 +82,7 @@ class TicketButtonHandler {
           break;
         }
         case 'category_bug': {
-          responseContent = "✅ **Bug Report** selected!\n\n🐛 **Bug Report Instructions:**\n\nTo help us fix bugs quickly, please provide:\n1. **What happened?** (describe the bug)\n2. **What were you doing?** (steps to reproduce)\n3. **What should have happened?** (expected behavior)\n4. **Device/browser info** (if applicable)";
+          responseContent = "✅ **Bug Report** selected!\n\nTo help us fix bugs quickly, please provide:\n1. **What happened?** (describe the bug)\n2. **What were you doing?** (steps to reproduce)\n3. **What should have happened?** (expected behavior)\n4. **Device/browser info** (if applicable)";
           break;
         }
         case 'category_billing': {
