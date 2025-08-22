@@ -239,7 +239,8 @@ class TicketChannelService {
     const immediateEscalationCategories = [
       'category_hardware',
       'category_bug', 
-      'category_billing'
+      'category_billing',
+      'category_other'
     ];
     
     return ticketState.category && 
@@ -453,6 +454,7 @@ class TicketChannelService {
       'category_hardware': 'Hardware Issue',
       'category_bug': 'Bug Report', 
       'category_billing': 'Billing/Account',
+      'category_other': 'Other',
       'category_general': 'General Questions',
       'category_software': 'Software/Setup Issue',
       'category_orders': 'Order Status'

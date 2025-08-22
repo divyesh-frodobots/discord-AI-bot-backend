@@ -171,7 +171,7 @@ class TicketChannelManager {
         .setEmoji('🔧')
     );
 
-    // Second row: Bug Report, Billing, Order Status
+    // Second row: Bug Report, Billing, Order Status, Other
     const secondRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId('category_bug')
@@ -187,7 +187,12 @@ class TicketChannelManager {
         .setCustomId('category_orders')
         .setLabel('Order Status')
         .setStyle(ButtonStyle.Primary)
-        .setEmoji('📦')
+        .setEmoji('📦'),
+      new ButtonBuilder()
+        .setCustomId('category_other')
+        .setLabel('Other')
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji('📝')
     );
 
     return [firstRow, secondRow];

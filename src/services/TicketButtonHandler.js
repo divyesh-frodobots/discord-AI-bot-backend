@@ -78,7 +78,7 @@ class TicketButtonHandler {
           break;
         }
         case 'category_hardware': {
-          responseContent = "✅ **Hardware Issue** selected!\n\n**Hardware Support Instructions:**\nFor hardware issues, our support team will need to assist you directly. Please provide:\n\n**1. Bot ID (3-word code)** - Provide the 3-word code of your bot (e.g., silver fox echo) (required)\n**2. Problem Description** - Describe your hardware problem in detail\n\nOnce you provide this information, we'll get you connected with a technician.";
+          responseContent = "✅ **Hardware Issue** selected!\n\n**Hardware Support Instructions:**\nFor hardware issues, our support team will need to assist you directly. Please provide:\n\n**1. Bot ID (3-word code)** - Provide the 3-word code of your bot (e.g., silver fox echo) (required)\n**2. Problem Description** - Describe your hardware problem in detail\n**3. Photos/Videos** - Attach clear photos or a short video showing the issue\n\nOnce you provide this information, we'll get you connected with a technician.";
           break;
         }
         case 'category_bug': {
@@ -86,7 +86,11 @@ class TicketButtonHandler {
           break;
         }
         case 'category_billing': {
-          responseContent = "✅ **Billing/Account** selected!\n\n💳 **Billing Support:**\n\nOur billing team will assist you with account and payment issues. Please describe your billing question or concern.";
+          responseContent = "✅ **Billing/Account** selected!\n\nOur billing team will assist you with account and payment issues. Please describe your billing question or concern.";
+          break;
+        }
+        case 'category_other': {
+          responseContent = "✅ **Other** selected!\n\nPlease describe the reason for opening this ticket so our team can route it appropriately.";
           break;
         }
         case 'category_orders': {
