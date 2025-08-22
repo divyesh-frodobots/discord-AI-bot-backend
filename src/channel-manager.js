@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express from 'express';
+import { handleOrdersCreate } from './webhooks/ShopifyWebhookHandler.js';
 import dynamicChannelService from './services/DynamicPublicChannelService.js';
 import { getConfiguredServerIds, getServerConfig } from './config/serverConfigs.js';
 
@@ -7,8 +8,12 @@ const app = express();
 const PORT = process.env.WEB_PORT || 3000;
 
 // Middleware
-app.use(express.json());
+// Capture raw JSON body globally so HMAC verification works even behind proxies
+app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(express.urlencoded({ extended: true }));
+
+// Webhook route (no route-specific parser needed since we captured rawBody above)
+app.post('/webhooks/shopify/orders-create', handleOrdersCreate);
 
 // Authentication credentials from environment
 const ADMIN_ID = process.env.ADMIN_ID || 'admin';
