@@ -1,4 +1,5 @@
 import shopifyOrderDetector from './ShopifyOrderDetector.js';
+import { ChannelType } from 'discord.js';
 import { getServerConfig } from '../config/serverConfigs.js';
 
 /**
@@ -20,6 +21,15 @@ class ShopifyPublicIntegrator {
    */
   async processPublicMessage(message) {
     try {
+      // Only respond inside threads in public channels
+      const isInPublicThread =
+        message.channel?.type === ChannelType.PublicThread ||
+        message.channel?.type === ChannelType.AnnouncementThread;
+
+      if (!isInPublicThread) {
+        return null;
+      }
+
       // Check if message is order-related
       const isOrderRelated = await shopifyOrderDetector.isOrderRelated(message);
       

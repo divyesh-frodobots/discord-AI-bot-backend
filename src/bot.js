@@ -167,6 +167,12 @@ client.on("messageCreate", async (message) => {
         console.log(`👮 Support staff message detected - bot will stop responding in thread: ${message.channel.name}`);
         return; // Don't process this message further
       }
+
+      // Also ignore messages from staff in main public channels
+      if (!message.channel.isThread() && await isStaffMember(message)) {
+        console.log(`👮 Staff message in main public channel detected - bot will not respond in #${message.channel.name}`);
+        return; // Don't process this message further
+      }
       
       await handlePublicChannelFlow(message);
       return;
