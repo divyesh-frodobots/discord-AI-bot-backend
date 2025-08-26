@@ -208,7 +208,6 @@ Please try again or contact our support team.`
     const orderNumber = order.name || order.id;
     const status = this._getStatusDisplay(order);
     const items = this._formatLineItems(order.line_items || []);
-    const shipping = this._formatShippingInfo(order);
     const trackingInfo = this._getTrackingDisplay(order);
 
     let content = `**Order ${orderNumber} Details**
@@ -226,10 +225,6 @@ Please try again or contact our support team.`
 **Items:**
 ${items}`;
 
-    if (shipping) {
-      content += `\n**Shipping Address:**\n${shipping}`;
-    }
-
     content += `\n\n💬 **Have questions about this order?**\nJust ask your question and our support team will help you directly!`;
 
     return { content };
@@ -241,6 +236,32 @@ ${items}`;
   _getStatusDisplay(order) {
     const financial = order.financial_status || 'unknown';
     const fulfillment = order.fulfillment_status || 'unfulfilled';
+
+    // Prefer carrier shipment status when available
+    const shipmentStatus = this._deriveShipmentStatus(order.fulfillments || []);
+    if (shipmentStatus) {
+      switch (shipmentStatus) {
+        case 'delivered':
+          return '**Delivered** - Your order was delivered';
+        case 'out_for_delivery':
+          return '**Out for Delivery** - Carrier is delivering today';
+        case 'in_transit':
+          return '**In Transit** - Your package is on the way';
+        case 'ready_for_pickup':
+          return '**Ready for Pickup** - Available for pickup';
+        case 'attempted_delivery':
+          return '**Delivery Attempted** - Carrier will reattempt or needs action';
+        case 'failure':
+          return '**Delivery Issue** - Carrier reported a delivery problem';
+        case 'confirmed':
+          return '**Shipped** - Handed to carrier';
+        case 'label_purchased':
+        case 'label_printed':
+          return '**Label Created** - Waiting for carrier pickup';
+        default:
+          break; // fall through to fulfillment-based logic
+      }
+    }
 
     if (fulfillment === 'fulfilled') {
       return '**Shipped** - Your order has been sent';
@@ -259,6 +280,34 @@ ${items}`;
     }
 
     return `📋 ${financial} / ${fulfillment}`;
+  }
+
+  _deriveShipmentStatus(fulfillments) {
+    if (!Array.isArray(fulfillments) || fulfillments.length === 0) return null;
+
+    // Priority order of statuses to report if multiple fulfillments exist
+    const priority = [
+      'delivered',
+      'out_for_delivery',
+      'ready_for_pickup',
+      'in_transit',
+      'confirmed',
+      'label_purchased',
+      'label_printed',
+      'attempted_delivery',
+      'failure'
+    ];
+
+    const seen = new Set();
+    for (const f of fulfillments) {
+      const s = (f && f.shipment_status ? String(f.shipment_status).toLowerCase() : null);
+      if (s) seen.add(s);
+    }
+
+    for (const p of priority) {
+      if (seen.has(p)) return p;
+    }
+    return null;
   }
 
   /**
@@ -306,24 +355,6 @@ ${items}`;
     });
     
     return trackingLinks.join(', ');
-  }
-
-  /**
-   * Format shipping information
-   */
-  _formatShippingInfo(order) {
-    const shipping = [];
-
-    // Shipping address
-    if (order.shipping_address) {
-      const addr = order.shipping_address;
-      shipping.push(`${addr.name || ''}`);
-      shipping.push(`${addr.address1 || ''}`);
-      if (addr.city) shipping.push(`${addr.city}, ${addr.zip || ''}`);
-      if (addr.country) shipping.push(`${addr.country}`);
-    }
-
-    return shipping.join('\n');
   }
 
   /**
