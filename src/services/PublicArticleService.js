@@ -161,6 +161,47 @@ class PublicArticleService {
         console.log('[PublicArticleService] No valid product categories provided; falling back to query-driven category selection');
         relevantCategories = this._getRelevantCategories(queryLower);
       }
+
+      // If multiple products are allowed, choose the best-matching product by analyzing
+      // each product's own content (no UI buttons needed)
+      if (relevantCategories.length > 1) {
+        const productScores = {};
+        const urlSignals = {
+          earthrover_school: [/drive\.frodobots\.com\/testdrive/i, /checkpoint/i, /cones?/i],
+          earthrover: [/rovers\.frodobots\.com/i],
+          ufb: [/ufb\.gg/i],
+          sam: [/sam/i],
+          robotsfun: [/robots\.fun/i]
+        };
+
+        for (const category of relevantCategories) {
+          const articles = this.categorizedContent[category] || [];
+          if (articles.length === 0) { productScores[category] = 0; continue; }
+
+          // Score by highest relevance among that category's articles
+          let topArticleScore = 0;
+          let urlBoost = 0;
+          for (const article of articles) {
+            const s = this._calculateRelevanceScore(queryLower, article);
+            if (s > topArticleScore) topArticleScore = s;
+            // URL/content signal boosts
+            const body = `${article.title}\n${article.content}`;
+            const signals = urlSignals[category] || [];
+            for (const rgx of signals) {
+              if (rgx.test(body)) urlBoost += 3; // small but meaningful nudge
+            }
+          }
+
+          productScores[category] = topArticleScore + urlBoost;
+        }
+
+        const bestCategory = Object.entries(productScores)
+          .sort((a, b) => b[1] - a[1])[0]?.[0];
+        if (bestCategory) {
+          console.log(`[PublicArticleService] Auto-selected product category: ${bestCategory} (scores:`, productScores, ')');
+          relevantCategories = [bestCategory];
+        }
+      }
     } else {
       // Use query-driven selection (default behavior)
       relevantCategories = this._getRelevantCategories(queryLower);

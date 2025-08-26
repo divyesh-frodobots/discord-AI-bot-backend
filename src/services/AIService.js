@@ -1,5 +1,4 @@
 import OpenAI from "openai";
-import constants from "../config/constants.js";
 import { getServerFallbackResponse } from '../config/serverConfigs.js';
 
 class AIService {
@@ -70,7 +69,7 @@ Always match your response length to the complexity and scope of what the user i
         model: "gpt-4.1-mini",
         messages: strictMessages,
         temperature: 0.7, // Slightly reduced for more focused responses
-        max_tokens: 1200, // Allow more headroom for structured answers
+        max_tokens: 700, // Allow more headroom for structured answers
         presence_penalty: 0.1, // Slightly reduce repetition
         frequency_penalty: 0.1 // Slightly reduce repetitive phrases
       });

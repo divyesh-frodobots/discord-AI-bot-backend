@@ -70,33 +70,38 @@ Remember: Always build on previous context and make connections to earlier parts
     return this.systemMessage;
   }
 
-  // NEW: Initialize conversation with query-specific content for public channels
+  // NEW: Initialize OR UPDATE the system message per turn (keeps history)
   async initializeConversation(conversationId, articles = null, isUserBased = true, userQuery = null) {
     const key = isUserBased ? `user_${conversationId}` : conversationId;
 
+    // Ensure conversation container exists
     if (!this.userConversations[key]) {
-      if (articles) {
-        // For product-specific conversations (like tickets), use provided articles
-        this.userConversations[key] = [{ role: "system", content: articles }];
-      } else {
-        // For general conversations (like public channels), use query-specific content
-        if (userQuery && this.articleService.getRelevantContent) {
-          // Use the new query-specific content system
-          try {
-            const relevantContent = await this.articleService.getRelevantContent(userQuery);
-            const systemMessage = await this._createQuerySpecificSystemMessage(userQuery, relevantContent);
-            this.userConversations[key] = [systemMessage];
-          } catch (error) {
-            console.error("Error getting query-specific content, falling back to general:", error);
-            const systemMessage = await this.initializeSystemMessage();
-            this.userConversations[key] = [systemMessage];
-          }
-        } else {
-          // Fallback to cached system message
-          const systemMessage = await this.initializeSystemMessage();
-          this.userConversations[key] = [systemMessage];
-        }
+      this.userConversations[key] = [];
+    }
+
+    // Decide the new system message
+    let newSystemMessage;
+    if (articles) {
+      newSystemMessage = { role: "system", content: articles };
+    } else if (userQuery && this.articleService.getRelevantContent) {
+      try {
+        const relevantContent = await this.articleService.getRelevantContent(userQuery);
+        newSystemMessage = await this._createQuerySpecificSystemMessage(userQuery, relevantContent);
+      } catch (error) {
+        console.error("Error getting query-specific content, falling back to general:", error);
+        const fallback = await this.initializeSystemMessage();
+        newSystemMessage = fallback;
       }
+    } else {
+      const fallback = await this.initializeSystemMessage();
+      newSystemMessage = fallback;
+    }
+
+    // Replace or insert system message at index 0, preserve rest of history
+    if (this.userConversations[key].length === 0) {
+      this.userConversations[key].push(newSystemMessage);
+    } else {
+      this.userConversations[key][0] = newSystemMessage;
     }
   }
 

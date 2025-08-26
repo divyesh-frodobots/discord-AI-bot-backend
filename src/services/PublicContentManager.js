@@ -37,6 +37,14 @@ class PublicContentManager {
       ],
       PRODUCT_SPECIFIC: {
         'earthrover': ['earthrover', 'personal bot', 'individual bot'],
+        // Strong signals for EarthRover School so generic questions like
+        // "how to test drive" map to the school product instead of personal bots
+        'earthrover_school': [
+          'earthrover school', 'school', 'test drive', 'testdrive',
+          'drive.frodobots.com', 'checkpoint', 'scan checkpoint', 'cones',
+          'open-world', 'open world', 'bind your keys', 'bind keys',
+          'game controller', 'driving wheel'
+        ],
         'ufb': ['ufb', 'ultimate fighting', 'fighting bot', 'battle'],
         'sam': ['sam', 'small autonomous', 'autonomous bot'],
         'robotsfun': ['robots fun', 'fun', 'entertainment', 'games']
