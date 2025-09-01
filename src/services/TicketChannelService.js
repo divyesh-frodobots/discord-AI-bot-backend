@@ -2,6 +2,7 @@ import { buildSystemPrompt, buildHumanHelpPrompt } from './ArticleService.js';
 import { getServerConfig, getServerFallbackResponse } from '../config/serverConfigs.js';
 import botRules from '../config/botRules.js';
  import shopifyIntegrator from '../shopify/ShopifyIntegrator.js';
+import PermissionService from './PermissionService.js';
 
 /**
  * TicketChannelService - Handles message processing in ticket channels
@@ -65,31 +66,7 @@ class TicketChannelService {
    * @returns {boolean} True if message is from staff
    */
   isStaffMessage(message) {
-    // Get server-specific configuration
-    const serverConfig = getServerConfig(message.guild.id);
-    
-    // Use server-specific staff roles if configured, otherwise fall back to global config
-    const staffRoles = serverConfig ? serverConfig.staffRoles : botRules.TICKET_CHANNELS.STAFF_ROLES;
-    const staffRoleIds = serverConfig ? serverConfig.staffRoleIds : botRules.TICKET_CHANNELS.STAFF_ROLE_IDS;
-    const staffPermissions = botRules.TICKET_CHANNELS.STAFF_PERMISSIONS;
-    
-    // Check staff roles by name
-    const hasStaffRoleByName = message.member.roles.cache.some(role => 
-      staffRoles.includes(role.name)
-    );
-    
-    // Check staff roles by ID
-    const hasStaffRoleById = message.member.roles.cache.some(role => 
-      staffRoleIds.includes(role.id)
-    );
-    
-    // Check staff permissions
-    const hasStaffPermissions = message.member.permissions && 
-      staffPermissions.some(permission => 
-        message.member.permissions.has(permission)
-      );
-    
-    return hasStaffRoleByName || hasStaffRoleById;
+    return PermissionService.isStaffMember(message);
   }
 
   /**

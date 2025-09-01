@@ -3,7 +3,7 @@ import { buildHumanHelpPrompt } from './ArticleService.js';
 import redis from './redisClient.js';
 import { getServerFallbackResponse, getServerConfig } from '../config/serverConfigs.js';
 import dynamicChannelService from './DynamicPublicChannelService.js';
-import shopifyIntegrator from '../shopify/ShopifyIntegrator.js';
+import ConversationKeyUtil from '../utils/ConversationKeyUtil.js';
 
 /**
  * Public Channel Service - Thread-Based Conversation Management
@@ -643,35 +643,7 @@ class PublicChannelService {
     return { allowed: true };
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════════
-  // LEGACY METHODS - Kept for compatibility
-  // ═══════════════════════════════════════════════════════════════════════════════
 
-  /**
-   * Check if message contains escalation phrases (legacy)
-   */
-  hasEscalationPhrase(content) {
-    const lowerContent = content.toLowerCase();
-    return botRules.PUBLIC_CHANNELS.ESCALATION_PHRASES.some(phrase => 
-      lowerContent.includes(phrase.toLowerCase())
-    );
-  }
-
-  /**
-   * Handle escalation request (legacy)
-   */
-  async handleEscalation(message) {
-    const escalationMessage = botRules.PUBLIC_CHANNELS.ESCALATION_MESSAGE
-      .replace('{user}', `<@${message.author.id}>`)
-      .replace('{channel}', `<#${message.channel.id}>`);
-
-    await message.reply(`${botRules.PUBLIC_CHANNELS.ESCALATION_ROLE} - ${escalationMessage}`);
-    
-    return {
-      escalated: true,
-      message: escalationMessage
-    };
-  }
 
   /**
    * Get low confidence response
@@ -883,56 +855,14 @@ class PublicChannelService {
     return botRules.BOT_IDENTITY;
   }
 
-  /**
-   * Get friendly prompt for triggered messages
-   */
-  getFriendlyPrompt() {
-    return "Hi! How can I help you today? Please ask your question.";
-  }
+
 
   // Helper to generate a unique conversation key per thread
   getThreadConversationKey(message) {
-    const userId = message.author.id;
-    const parentChannelId = message.channel.parentId;
-    const threadId = message.channel.id;
-    return `user_${userId}:${parentChannelId}:${threadId}`;
+    return ConversationKeyUtil.generateThreadKey(message);
   }
 
-  // Example usage in your thread message handler (update all relevant places):
-  async handleThreadMessage(message, aiService, conversationService) {
-    // 🛍️ SHOPIFY INTEGRATION - Check for order-related queries first
-    try {
-      const shopifyResponse = await shopifyIntegrator.handlePublicMessage(message);
-      if (shopifyResponse) {
-        console.log('🛍️ Shopify handled public message');
-        await message.reply({ content: shopifyResponse.content, flags: ['SuppressEmbeds'] });
-        
-        // If Shopify fully handled it, skip AI
-        if (!shopifyResponse.shouldContinueToAI) {
-          console.log('✅ Shopify fully handled the query, skipping AI response');
-          return;
-        }
-        // Otherwise, continue to AI for additional context
-      }
-    } catch (shopifyError) {
-      console.error('❌ Shopify integration error (continuing to AI):', shopifyError.message);
-    }
-    // END SHOPIFY INTEGRATION
-    
-    const conversationKey = this.getThreadConversationKey(message);
-    // Initialize conversation for this thread if needed
-    await conversationService.initializeConversation(conversationKey, null, false);
-    // Add user message
-    conversationService.addUserMessage(conversationKey, message.content, false);
-    // Get conversation history for this thread
-    const conversationHistory = conversationService.getConversationHistory(conversationKey, false);
-    // Generate AI response
-    const aiResponse = await aiService.generateResponse(conversationHistory);
-    // Add assistant message
-    conversationService.addAssistantMessage(conversationKey, aiResponse.response, false);
-    // Reply in thread
-    await message.reply(aiResponse.response);
-  }
+
 }
 
 export default PublicChannelService; 
