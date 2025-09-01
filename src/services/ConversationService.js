@@ -1,4 +1,6 @@
 
+import ConversationKeyUtil from '../utils/ConversationKeyUtil.js';
+
 class ConversationService {
   constructor(articleService) {
     this.articleService = articleService;
@@ -14,11 +16,7 @@ class ConversationService {
 
   // Get conversation ID - can be channel-based or user-based
   getConversationId(message, useUserBased = true) {
-    if (useUserBased) {
-      return `user_${message.author.id}`;
-    } else {
-      return message.channel.isThread() ? message.channel.id : message.channel.id;
-    }
+    return ConversationKeyUtil.generateKey(message, useUserBased);
   }
 
   // Initialize system message once and cache it
@@ -179,8 +177,7 @@ Remember: Provide accurate, helpful information based on the relevant content pr
 
     if (estimatedTokens > this.MAX_CONVERSATION_TOKENS) {
       const systemMessage = this.userConversations[conversationKey][0];
-      // Keep more messages for better context (last 10 instead of 6)
-      const recentMessages = this.userConversations[conversationKey].slice(-10);
+      const recentMessages = this.userConversations[conversationKey].slice(-6);
       this.userConversations[conversationKey] = [systemMessage, ...recentMessages];
       console.log(`Conversation history truncated for ${conversationKey} to prevent token overflow. Kept ${recentMessages.length} recent messages.`);
     }

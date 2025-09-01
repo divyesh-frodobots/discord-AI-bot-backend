@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
-import { getServerConfig } from '../config/serverConfigs.js';
+import PermissionService from '../services/PermissionService.js';
 
 export default {
   data: new SlashCommandBuilder()
@@ -74,44 +74,14 @@ export default {
       return false;
     }
 
-    const serverConfig = getServerConfig(channel.guild.id);
-    if (!serverConfig) {
-      return false;
-    }
-
-    return channel.parentId === serverConfig.ticketChannelId;
+    return PermissionService.isTicketChannel(channel);
   },
 
   /**
    * Check if user has support team permissions
    */
   hasSupportPermission(interaction) {
-    const serverConfig = getServerConfig(interaction.guild.id);
-    if (!serverConfig) {
-      return false;
-    }
-
-    const staffRoles = serverConfig.staffRoles || [];
-    const staffRoleIds = serverConfig.staffRoleIds || [];
-
-    // Check by role name
-    const hasRoleByName = interaction.member.roles.cache.some(role => 
-      staffRoles.includes(role.name)
-    );
-
-    // Check by role ID
-    const hasRoleById = interaction.member.roles.cache.some(role => 
-      staffRoleIds.includes(role.id)
-    );
-
-    // Debug logging
-    console.log(`User ${interaction.user.tag} roles:`, 
-      interaction.member.roles.cache.map(r => `${r.name} (${r.id})`));
-    console.log(`Required roles:`, staffRoles);
-    console.log(`Required role IDs:`, staffRoleIds);
-    console.log(`Has permission: ${hasRoleByName || hasRoleById}`);
-
-    return hasRoleByName || hasRoleById;
+    return PermissionService.hasSupportPermission(interaction);
   },
 
   /**

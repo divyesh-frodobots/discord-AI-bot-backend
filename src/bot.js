@@ -10,7 +10,7 @@ import TicketChannelService from "./services/TicketChannelService.js";
 import TicketSelectionService from './services/TicketSelectionService.js';
 import LoggingService from './services/LoggingService.js';
 import PublicChannelService from './services/PublicChannelService.js';
-import ChannelService from './services/ChannelService.js';
+
 import PublicArticleService from "./services/PublicArticleService.js";
 import PublicContentManager from "./services/PublicContentManager.js";
 import dynamicChannelService from './services/DynamicPublicChannelService.js';
@@ -29,6 +29,14 @@ import commands from './commands/index.js';
 import constants from "./config/constants.js";
 import botRules from "./config/botRules.js";
 
+// Import utilities
+import ConversationKeyUtil from "./utils/ConversationKeyUtil.js";
+import ShopifyIntegrationUtil from "./utils/ShopifyIntegrationUtil.js";
+
+// Import common services
+import PermissionService from "./services/PermissionService.js";
+import MessageService from "./services/MessageService.js";
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // SERVICE INITIALIZATION
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -36,7 +44,7 @@ import botRules from "./config/botRules.js";
 // Core services
 const articleService = new ArticleService();
 const aiService = new AIService();
-const channelService = new ChannelService();
+
 
 // Ticket system services
 const ticketSelectionService = new TicketSelectionService();
@@ -194,18 +202,18 @@ async function isPublicChannelMessage(message) {
     return false;
   }
 
-  const channelInfo = channelService.getChannelInfo(message);
   const guildId = message.guild.id;
+  const channelId = message.channel.id;
   
   // Get dynamic public channels only
   const approvedChannels = await dynamicChannelService.getAllPublicChannels(guildId);
 
   // Debug logging
-  console.log(`🔍 Checking message in guild ${guildId}, channel ${channelInfo.channelId} (#${message.channel.name})`);
+  console.log(`🔍 Checking message in guild ${guildId}, channel ${channelId} (#${message.channel.name})`);
   console.log(`📋 Approved channels: [${approvedChannels.join(', ')}]`);
 
   // Direct public channel message
-  const isPublicChannel = approvedChannels.includes(channelInfo.channelId);
+  const isPublicChannel = approvedChannels.includes(channelId);
 
   // Message in thread of public channel
   const isInPublicThread = message.channel.isThread() &&
@@ -213,7 +221,7 @@ async function isPublicChannelMessage(message) {
     approvedChannels.includes(message.channel.parent.id);
 
   const result = isPublicChannel || isInPublicThread;
-  console.log(`✅ Channel ${channelInfo.channelId} is public: ${result}`);
+  console.log(`✅ Channel ${channelId} is public: ${result}`);
 
   return result;
 }
@@ -312,9 +320,7 @@ async function processPublicChannelMessage(message) {
   } catch (error) {
     await handleProcessingError(context, error);
   } finally {
-    if (context.typingInterval) {
-      clearInterval(context.typingInterval);
-    }
+    MessageService.stopTyping(context.typingInterval);
   }
 }
 
@@ -322,14 +328,7 @@ async function processPublicChannelMessage(message) {
  * Create message processing context
  */
 function createMessageContext(message) {
-  return {
-    message,
-    userId: message.author.id,
-    username: message.author.username,
-    isInMainChannel: !message.channel.isThread(),
-    targetChannel: message.channel,
-    typingInterval: null,
-  };
+  return MessageService.createContext(message);
 }
 
 /**
@@ -352,8 +351,7 @@ async function setupConversationChannel(context) {
   }
 
   // Start typing indicator
-  context.typingInterval = setInterval(() => context.targetChannel.sendTyping(), 5000);
-  context.targetChannel.sendTyping();
+  context.typingInterval = MessageService.startTyping(context.targetChannel);
 }
 
 /**
@@ -380,50 +378,38 @@ async function checkForEscalation(context) {
  */
 async function generateAIResponse(context) {
   // 🛍️ SHOPIFY INTEGRATION - Check for order-related queries first
-  try {
-    const shopifyResponse = await shopifyIntegrator.handlePublicMessage(context.message);
-    if (shopifyResponse) {
-      console.log('🛍️ Shopify handled public message');
-      
-      // Stop typing
-      if (context.typingInterval) {
-        clearInterval(context.typingInterval);
-        context.typingInterval = null;
-      }
-      
-      // Prepare message content and components
-      const messageOptions = { 
-        content: shopifyResponse.content, 
-        flags: ['SuppressEmbeds'] 
-      };
-
-      // Add ticket creation button if requested
-      if (shopifyResponse.showTicketButton) {
-        const ticketButton = new ButtonBuilder()
-          .setCustomId('create_order_ticket')
-          .setLabel('🎫 Create Private Ticket')
-          .setStyle(ButtonStyle.Primary);
-
-        const continueButton = new ButtonBuilder()
-          .setCustomId('continue_public')
-          .setLabel('Continue Here')
-          .setStyle(ButtonStyle.Secondary);
-
-        const actionRow = new ActionRowBuilder().addComponents(ticketButton, continueButton);
-        messageOptions.components = [actionRow];
-      }
-
-      await context.targetChannel.send(messageOptions);
-      
-      // If Shopify fully handled it, skip AI
-      if (!shopifyResponse.shouldContinueToAI) {
-        console.log('✅ Shopify fully handled the query, skipping AI response');
-        return;
-      }
-      // Otherwise, continue to AI for additional context
+  const shopifyResponse = await ShopifyIntegrationUtil.handleMessage(context.message, 'public');
+  if (shopifyResponse) {
+    // Stop typing
+    if (context.typingInterval) {
+      clearInterval(context.typingInterval);
+      context.typingInterval = null;
     }
-  } catch (shopifyError) {
-    console.error('❌ Shopify integration error (continuing to AI):', shopifyError.message);
+    
+    // Add ticket creation button if requested
+    if (shopifyResponse.showTicketButton) {
+      const ticketButton = new ButtonBuilder()
+        .setCustomId('create_order_ticket')
+        .setLabel('🎫 Create Private Ticket')
+        .setStyle(ButtonStyle.Primary);
+
+      const continueButton = new ButtonBuilder()
+        .setCustomId('continue_public')
+        .setLabel('Continue Here')
+        .setStyle(ButtonStyle.Secondary);
+
+      const actionRow = new ActionRowBuilder().addComponents(ticketButton, continueButton);
+      shopifyResponse.components = [actionRow];
+    }
+
+    await ShopifyIntegrationUtil.sendResponse(context.message, shopifyResponse, context.targetChannel);
+    
+    // If Shopify fully handled it, skip AI
+    if (ShopifyIntegrationUtil.isFullyHandled(shopifyResponse)) {
+      console.log('✅ Shopify fully handled the query, skipping AI response');
+      return;
+    }
+    // Otherwise, continue to AI for additional context
   }
   // END SHOPIFY INTEGRATION
 
@@ -441,10 +427,8 @@ async function generateAIResponse(context) {
       const conversationHistory = publicConversationService.getConversationHistory(conversationKey, false);
       const aiResponse = await aiService.generateResponse(conversationHistory);
 
-      if (context.typingInterval) {
-        clearInterval(context.typingInterval);
-        context.typingInterval = null;
-      }
+      MessageService.stopTyping(context.typingInterval);
+      context.typingInterval = null;
 
       if (isLowConfidenceResponse(aiResponse)) {
         await handleLowConfidenceResponse(context, aiResponse);
@@ -548,18 +532,9 @@ async function generateAIResponse(context) {
  * Generate conversation key based on message context
  */
 function getConversationKey(context) {
-  const message = context.message;
-  const userId = message.author.id;
-  const target = context.targetChannel || message.channel;
-
-  if (target.isThread && target.isThread()) {
-    const parentChannelId = target.parentId || (target.parent && target.parent.id);
-    const threadId = target.id;
-    return `user_${userId}:${parentChannelId}:${threadId}`;
-  }
-  // Include channel id to avoid cross-channel context mixing
-  const channelId = target.id;
-  return `user_${userId}:${channelId}`;
+  const target = context.targetChannel || context.message.channel;
+  const mockMessage = { ...context.message, channel: target };
+  return ConversationKeyUtil.generateKey(mockMessage, true);
 }
 
 /**
@@ -574,24 +549,7 @@ function isLowConfidenceResponse(aiResponse) {
  * Check if message author is a staff member
  */
 async function isStaffMember(message) {
-  const guildId = message.guild?.id;
-  const serverConfig = getServerConfig(guildId);
-  
-  if (!serverConfig || !serverConfig.staffRoleIds) {
-    return false;
-  }
-  
-  try {
-    const member = message.member || await message.guild.members.fetch(message.author.id).catch(() => null);
-    if (!member) return false;
-    
-    return serverConfig.staffRoleIds.some(roleId => 
-      member.roles.cache.has(roleId)
-    );
-  } catch (error) {
-    console.error('Error checking staff member:', error);
-    return false;
-  }
+  return await PermissionService.isStaffMemberAsync(message);
 }
 
 /**
