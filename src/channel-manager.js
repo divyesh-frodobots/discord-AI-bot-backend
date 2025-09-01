@@ -269,6 +269,69 @@ app.get('/', (req, res) => {
         .product-card:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.06); background: #ffffff; }
         .product-checkbox { width: 18px; height: 18px; accent-color: #667eea; }
         .product-title { font-weight: 700; font-size: 18px; color: #202124; line-height: 1.25; }
+
+        /* Google Docs Links Styles */
+        .google-docs-section {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            background-color: #f9f9f9;
+            margin-top: 10px;
+        }
+
+        .add-link-container {
+            display: flex;
+            margin-bottom: 15px;
+            align-items: center;
+        }
+
+        .links-list {
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .link-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            margin-bottom: 5px;
+            background-color: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+        }
+
+        .link-text {
+            flex: 1;
+            color: #007bff;
+            margin-right: 10px;
+            word-break: break-all;
+            font-size: 14px;
+        }
+
+        .remove-link-btn {
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .remove-link-btn:hover {
+            background-color: #c82333;
+        }
+
+        .links-count {
+            color: #28a745;
+            font-weight: bold;
+            margin-top: 5px;
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+        }
     </style>
 </head>
 <body>
@@ -329,6 +392,23 @@ app.get('/', (req, res) => {
                         <div id="productGrid" class="product-grid"></div>
                         <input type="hidden" name="products" id="productsHidden" required>
                     </div>
+                    <div class="form-group">
+                        <label>Google Docs Links (Optional):</label>
+                        <div class="google-docs-section">
+                            <div class="add-link-container">
+                                <input type="url" id="newGoogleDocLink" 
+                                       placeholder="https://docs.google.com/document/d/abc123/edit" 
+                                       style="flex: 1; margin-right: 10px;">
+                                <button type="button" id="addGoogleDocBtn" class="btn btn-secondary">Add Link</button>
+                            </div>
+                            <div id="googleDocsLinksList" class="links-list">
+                                <!-- Links will be shown here -->
+                            </div>
+                            <small style="color: #6c757d;">
+                                Add Google Docs links containing support content. Links will be saved when you submit the form.
+                            </small>
+                        </div>
+                    </div>
                     <button type="submit" class="btn btn-success">Add Channel</button>
                 </form>
             </div>
@@ -387,13 +467,87 @@ app.get('/', (req, res) => {
             }
         });
 
+        // Local Google Docs Links Management
+        let localGoogleDocLinks = [];
+
+        // Add Google Doc link to local array
+        document.getElementById('addGoogleDocBtn').addEventListener('click', () => {
+            const linkInput = document.getElementById('newGoogleDocLink');
+            const link = linkInput.value.trim();
+            
+            if (!link) {
+                showAlert('Please enter a Google Docs link', 'error');
+                return;
+            }
+            
+            // Validate Google Docs URL format
+            // if (
+            // !/^https:\/\/docs\.google\.com\/(document|spreadsheets|presentations?)\/d\/[a-zA-Z0-9_-]+/.test(link)
+            // ) {
+            //     showAlert('Please enter a valid Google Docs link (docs.google.com)', 'error');
+            //     return;
+            // }
+            
+            // Check if link already exists locally
+            if (localGoogleDocLinks.includes(link)) {
+                showAlert('This link has already been added', 'error');
+                return;
+            }
+            
+            // Add to local array
+            localGoogleDocLinks.push(link);
+            updateLinksDisplay();
+            linkInput.value = '';
+            showAlert('✅ Link added locally (' + localGoogleDocLinks.length + ' total)', 'success');
+        });
+
+        // Update the links display
+        function updateLinksDisplay() {
+            const linksList = document.getElementById('googleDocsLinksList');
+            
+            if (localGoogleDocLinks.length === 0) {
+                linksList.innerHTML = '<p style="color: #6c757d; text-align: center; margin: 10px 0;">No links added yet</p>';
+                return;
+            }
+            
+            let html = '';
+            localGoogleDocLinks.forEach((link, index) => {
+                const displayLink = link.length > 60 ? link.substring(0, 60) + '...' : link;
+                html += '<div class="link-item">' +
+                       '<span class="link-text" title="' + link + '">' + displayLink + '</span>' +
+                       '<button type="button" class="remove-link-btn" onclick="removeLocalLink(' + index + ')">Remove</button>' +
+                       '</div>';
+            });
+            
+            html += '<div class="links-count">' + localGoogleDocLinks.length + ' link(s) ready to save</div>';
+            linksList.innerHTML = html;
+        }
+
+        // Remove link from local array
+        function removeLocalLink(index) {
+            localGoogleDocLinks.splice(index, 1);
+            updateLinksDisplay();
+            showAlert('Link removed from local list', 'info');
+        }
+
+        // Clear local links when form is reset
+        function clearLocalGoogleDocLinks() {
+            localGoogleDocLinks = [];
+            updateLinksDisplay();
+        }
+
+        // Initialize empty display
+        updateLinksDisplay();
+
         // Add channel form handler
         document.getElementById('addChannelForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
             const formData = new FormData(e.target);
             // Collect selected products from checkbox grid
-            const selectedProducts = Array.from(document.querySelectorAll('#productGrid input[type="checkbox"]:checked')).map(el => el.value);
+            const selectedProducts = Array.from(
+                document.querySelectorAll('#productGrid input[type="checkbox"]:checked')
+            ).map(el => el.value);
             document.getElementById('productsHidden').value = selectedProducts.join(',');
 
             const channelData = {
@@ -401,7 +555,8 @@ app.get('/', (req, res) => {
                 guildId: currentGuild,
                 channelId: formData.get('channelId'),
                 channelName: formData.get('channelName'),
-                products: selectedProducts
+                products: selectedProducts,
+                googleDocLinks: localGoogleDocLinks
             };
 
             if (!channelData.products || channelData.products.length === 0) {
@@ -419,8 +574,12 @@ app.get('/', (req, res) => {
                 const result = await response.json();
                 
                 if (response.ok) {
-                    showAlert('✅ Channel added successfully! Bot can now respond to messages in this channel immediately.', 'success');
+                    const message = localGoogleDocLinks.length > 0 
+                        ? '✅ Channel added successfully with ' + localGoogleDocLinks.length + ' Google Docs links!'
+                        : '✅ Channel added successfully! Bot can now respond immediately.';
+                    showAlert(message, 'success');
                     e.target.reset();
+                    clearLocalGoogleDocLinks();
                     await loadChannels();
                 } else {
                     showAlert(result.error || 'Failed to add channel', 'error');
@@ -441,7 +600,8 @@ app.get('/', (req, res) => {
                 const id = 'prod_' + p.key;
                 const card = document.createElement('label');
                 card.className = 'product-card';
-                card.innerHTML = '<input class="product-checkbox" type="checkbox" value="' + p.key + '" id="' + id + '"><span class="product-title">' + p.label + '</span>';
+                card.innerHTML = '<input class="product-checkbox" type="checkbox" value="' + p.key + 
+                    '" id="' + id + '"><span class="product-title">' + p.label + '</span>';
                 grid.appendChild(card);
             });
         }
@@ -540,7 +700,9 @@ app.get('/', (req, res) => {
                             <div class="channel-meta">
                                 Added: \${new Date(channel.addedAt).toLocaleDateString()} | 
                                 Name: \${channel.name || 'N/A'} | 
-                                Products: \${(channel.products && channel.products.length) ? channel.products.join(', ') : 'None'}
+                                Products: \${(channel.products && channel.products.length) ? channel.products.join(', ') : 'None'} |
+                                Google Docs: \${(channel.googleDocLinks && channel.googleDocLinks.length) ? 
+                                    channel.googleDocLinks.length + ' links' : 'None'}
                             </div>
                         </div>
                         <button class="btn btn-danger" onclick="removeChannel('\${channel.channelId}')">Remove</button>
@@ -648,7 +810,7 @@ app.post('/api/channels', authenticateUser, async (req, res) => {
 // Add a channel
 app.post('/api/channels/add', authenticateUser, async (req, res) => {
   try {
-    const { guildId, channelId, channelName, products } = req.body;
+    const { guildId, channelId, channelName, products, googleDocLinks } = req.body;
     
     if (!guildId || !channelId) {
       return res.status(400).json({ error: 'Guild ID and Channel ID are required' });
@@ -668,14 +830,27 @@ app.post('/api/channels/add', authenticateUser, async (req, res) => {
       return res.status(400).json({ error: 'At least one valid product is required' });
     }
 
+    // Process Google Docs links
+    let validGoogleDocLinks = [];
+    if (Array.isArray(googleDocLinks)) {
+      validGoogleDocLinks = googleDocLinks.filter(link => 
+        typeof link === 'string' && 
+        /^https:\/\/docs\.google\.com\/(document|spreadsheets|presentation)\/d\/[a-zA-Z0-9-_]+/.test(link)
+      );
+    }
+
     const success = await dynamicChannelService.addPublicChannel(guildId, channelId, {
       name: channelName,
       addedBy: 'web-admin',
-      products: sanitizedProducts
+      products: sanitizedProducts,
+      googleDocLinks: validGoogleDocLinks
     });
 
     if (success) {
-      res.json({ success: true, message: 'Channel added successfully! Bot will respond immediately.' });
+      const message = validGoogleDocLinks.length > 0 
+        ? `Channel added successfully with ${validGoogleDocLinks.length} Google Docs links!`
+        : 'Channel added successfully! Bot will respond immediately.';
+      res.json({ success: true, message });
     } else {
       res.status(500).json({ error: 'Failed to add channel' });
     }

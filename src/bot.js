@@ -14,6 +14,7 @@ import PublicChannelService from './services/PublicChannelService.js';
 import PublicArticleService from "./services/PublicArticleService.js";
 import PublicContentManager from "./services/PublicContentManager.js";
 import dynamicChannelService from './services/DynamicPublicChannelService.js';
+import googleDocsContentService from './services/GoogleDocsContentService.js';
 import shopifyIntegrator from './shopify/ShopifyIntegrator.js';
 import shopifyPublicIntegrator from './shopify/ShopifyPublicIntegrator.js';
 import redis from './services/redisClient.js';
@@ -161,6 +162,12 @@ client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
   try {
+    // Admin commands for Google Docs testing
+    if (message.content.startsWith('!gdocs') && message.author.id === process.env.ADMIN_USER_ID) {
+      await handleGoogleDocsAdminCommand(message);
+      return;
+    }
+
     // Route to ticket system
     if (ticketChannelService.isTicketChannel(message.channel)) {
       await ticketChannelService.handleMessage(message);
@@ -470,6 +477,20 @@ async function generateAIResponse(context) {
       effectiveAllowedProducts
     );
 
+    // 📄 GOOGLE DOCS INTEGRATION - Get channel-specific Google Docs content
+    const googleDocsContent = await googleDocsContentService.getChannelGoogleDocsContent(
+      guildId, 
+      targetChannelId, 
+      context.message.content
+    );
+
+    // Combine Intercom articles with Google Docs content
+    let combinedContent = relevantContent;
+    if (googleDocsContent) {
+      combinedContent = `CHANNEL-SPECIFIC DOCUMENTATION:\n${googleDocsContent}\n\nGENERAL KNOWLEDGE BASE:\n${relevantContent}`;
+      console.log(`📄 Enhanced content with Google Docs: ${googleDocsContent.length} chars from docs + ${relevantContent.length} chars from articles`);
+    }
+
     // Create enhanced system prompt with query-specific content
     const productConstraint = (effectiveAllowedProducts && effectiveAllowedProducts.length)
       ? `IMPORTANT: This channel is limited to these products only: ${effectiveAllowedProducts.join(', ')}. If the question is about another product, ask the user to switch to the correct product.`
@@ -477,7 +498,7 @@ async function generateAIResponse(context) {
 
     const enhancedSystemPrompt = publicContentManager.createEnhancedSystemPrompt(
       context.message.content,
-      relevantContent,
+      combinedContent,
       effectiveAllowedProducts
     );
 
@@ -602,11 +623,89 @@ async function handleNormalResponse(context, aiResponse) {
  * Send response to appropriate channel
  */
 async function sendResponse(context, responseText) {
-  if (context.targetChannel === context.message.channel) {
-    await context.message.reply(responseText);
-  } else {
-    await context.targetChannel.send(`<@${context.userId}> ${responseText}`);
+  const MAX_DISCORD_LENGTH = 2000;
+  
+  // If message is within Discord's limit, send normally
+  if (responseText.length <= MAX_DISCORD_LENGTH) {
+    if (context.targetChannel === context.message.channel) {
+      await context.message.reply(responseText);
+    } else {
+      await context.targetChannel.send(`<@${context.userId}> ${responseText}`);
+    }
+    return;
   }
+  
+  // Message is too long - split it intelligently
+  console.log(`📝 Response too long (${responseText.length} chars), splitting into multiple messages...`);
+  
+  const messages = splitLongMessage(responseText, MAX_DISCORD_LENGTH);
+  
+  // Send first message as reply
+  if (context.targetChannel === context.message.channel) {
+    await context.message.reply(messages[0]);
+  } else {
+    await context.targetChannel.send(`<@${context.userId}> ${messages[0]}`);
+  }
+  
+  // Send remaining messages normally
+  for (let i = 1; i < messages.length; i++) {
+    await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay between messages
+    await context.targetChannel.send(messages[i]);
+  }
+}
+
+/**
+ * Split long message into chunks that fit Discord's character limit
+ */
+function splitLongMessage(text, maxLength) {
+  if (text.length <= maxLength) {
+    return [text];
+  }
+  
+  const messages = [];
+  let currentMessage = '';
+  
+  // Split by paragraphs first (double newlines)
+  const paragraphs = text.split('\n\n');
+  
+  for (const paragraph of paragraphs) {
+    // If adding this paragraph would exceed limit
+    if (currentMessage.length + paragraph.length + 2 > maxLength) {
+      // If current message has content, save it
+      if (currentMessage.trim()) {
+        messages.push(currentMessage.trim());
+        currentMessage = '';
+      }
+      
+      // If single paragraph is too long, split by sentences
+      if (paragraph.length > maxLength) {
+        const sentences = paragraph.split('. ');
+        for (const sentence of sentences) {
+          const sentenceWithPeriod = sentence.endsWith('.') ? sentence : sentence + '.';
+          
+          if (currentMessage.length + sentenceWithPeriod.length + 1 > maxLength) {
+            if (currentMessage.trim()) {
+              messages.push(currentMessage.trim());
+              currentMessage = '';
+            }
+          }
+          
+          currentMessage += (currentMessage ? ' ' : '') + sentenceWithPeriod;
+        }
+      } else {
+        currentMessage = paragraph;
+      }
+    } else {
+      currentMessage += (currentMessage ? '\n\n' : '') + paragraph;
+    }
+  }
+  
+  // Add remaining content
+  if (currentMessage.trim()) {
+    messages.push(currentMessage.trim());
+  }
+  
+  return messages.length > 0 ? messages : [text.substring(0, maxLength - 10) + '...[truncated]'];
 }
 
 /**
@@ -830,6 +929,88 @@ client.on('channelDelete', async (channel) => {
     console.error('❌ Error handling channel deletion:', error);
   }
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ADMIN COMMANDS FOR GOOGLE DOCS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Handle Google Docs admin commands
+ */
+async function handleGoogleDocsAdminCommand(message) {
+  const args = message.content.split(' ');
+  const command = args[1];
+
+  try {
+    switch (command) {
+      case 'refresh':
+        await message.reply('🔄 Starting manual Google Docs refresh...');
+        const result = await googleDocsContentService.manualRefresh();
+        if (result.success) {
+          await message.reply(`✅ ${result.message || `Refreshed ${result.refreshed}/${result.total} docs`}`);
+        } else {
+          await message.reply(`❌ Refresh failed: ${result.error}`);
+        }
+        break;
+
+      case 'status':
+        const cacheStatus = await googleDocsContentService.getCacheStatus();
+        if (cacheStatus.length === 0) {
+          await message.reply('📄 No Google Docs content cached yet.');
+        } else {
+          const statusMsg = cacheStatus.map(item => 
+            `📄 **Doc**: ${item.key.substring(0, 30)}...\n` +
+            `   Last fetched: ${new Date(item.lastFetched).toLocaleString()}\n` +
+            `   Content: ${item.contentLength} chars\n` +
+            `   TTL: ${item.ttlHours}h remaining`
+          ).join('\n\n');
+          await message.reply(`**Google Docs Cache Status:**\n\`\`\`\n${statusMsg}\n\`\`\``);
+        }
+        break;
+
+      case 'test':
+        const guildId = message.guild.id;
+        const channelId = message.channel.id;
+        await message.reply('🧪 Testing Google Docs content retrieval...');
+        
+        // Get the Google Docs links first
+        const googleDocLinks = await dynamicChannelService.getChannelGoogleDocLinks(guildId, channelId);
+        if (!googleDocLinks || googleDocLinks.length === 0) {
+          await message.reply('❌ No Google Docs configured for this channel.');
+          break;
+        }
+        
+        await message.reply(`📄 Found ${googleDocLinks.length} Google Docs configured for this channel. Fetching content...`);
+        
+        const content = await googleDocsContentService.getChannelGoogleDocsContent(guildId, channelId, 'test query');
+        if (content) {
+          const preview = content.substring(0, 800) + (content.length > 800 ? '...' : '');
+          const docCount = (content.match(/=== DOCUMENT \d+/g) || []).length;
+          const tokenEstimate = Math.ceil(content.length / 4);
+          
+          await message.reply(`✅ **Multi-Doc Retrieval Success:**
+📊 **Stats**: ${content.length} chars, ~${tokenEstimate} tokens
+📄 **Documents**: ${docCount || 1} document(s) combined
+🔍 **Preview**:
+\`\`\`
+${preview}
+\`\`\``);
+        } else {
+          await message.reply('❌ Failed to retrieve Google Docs content (check logs for details).');
+        }
+        break;
+
+      default:
+        await message.reply(`**Google Docs Admin Commands:**
+\`!gdocs refresh\` - Manually refresh all Google Docs
+\`!gdocs status\` - Show cache status
+\`!gdocs test\` - Test content retrieval for current channel`);
+    }
+  } catch (error) {
+    console.error('❌ Google Docs admin command error:', error);
+    await message.reply(`❌ Command failed: ${error.message}`);
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // BOT LOGIN
