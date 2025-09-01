@@ -28,7 +28,8 @@ class DynamicPublicChannelService {
         addedBy: channelInfo.addedBy || 'admin',
         name: channelInfo.name || '',
         active: true,
-        products: Array.isArray(channelInfo.products) ? channelInfo.products : []
+        products: Array.isArray(channelInfo.products) ? channelInfo.products : [],
+        googleDocLinks: Array.isArray(channelInfo.googleDocLinks) ? channelInfo.googleDocLinks : []
       };
 
       console.log('[Redis] Saving public channel payload:', channelData);
@@ -135,6 +136,26 @@ class DynamicPublicChannelService {
       return channelDetails.sort((a, b) => new Date(b.addedAt) - new Date(a.addedAt));
     } catch (error) {
       console.error(`❌ Error getting channel details for guild ${guildId}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Get Google Docs links for a specific channel
+   */
+  async getChannelGoogleDocLinks(guildId, channelId) {
+    try {
+      const key = this._getRedisKey(guildId);
+      const channelDataStr = await redis.hGet(key, channelId);
+      
+      if (!channelDataStr) {
+        return [];
+      }
+      
+      const channelData = JSON.parse(channelDataStr);
+      return Array.isArray(channelData.googleDocLinks) ? channelData.googleDocLinks : [];
+    } catch (error) {
+      console.error(`❌ Error getting Google Docs links for channel ${channelId}:`, error);
       return [];
     }
   }

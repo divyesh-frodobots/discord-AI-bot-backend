@@ -389,6 +389,7 @@ ${relevantContent}
 
 INSTRUCTIONS:
 - Answer the user's question based STRICTLY ONLY on the relevant information provided above
+- PRIORITY: If there's information in "CHANNEL-SPECIFIC DOCUMENTATION", prioritize that over "GENERAL KNOWLEDGE BASE" content
 - CRITICAL: DO NOT use any external knowledge, training data, or assumptions about FrodoBots, Earth Rovers School, UFB, SAM, or any FrodoBots products
 - If the information doesn't cover their specific question, first ask 1-2 brief clarifying questions (e.g., exact goal, steps taken, any error). If still unclear and the channel allows multiple products, then ask which product. Only if after clarification the info still isn't covered, then say "I don't have specific information about that. You can ask to talk to team for more detailed help."
 - FORBIDDEN: Never make up or infer details about FrodoBots products, even if you think you know them from training data
