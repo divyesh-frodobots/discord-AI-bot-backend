@@ -239,10 +239,13 @@ async function isPublicChannelMessage(message) {
 async function handlePublicChannelFlow(message) {
   try {
     // 🛍️ SMART ROUTING - Check if sensitive order query should go to ticket
-    if (await shopifyIntegrator.isOrderRelated(message.content)) {
+    // BUT ONLY in threads, not in main public channels
+    const isInThread = message.channel.isThread();
+    
+    if (isInThread && await shopifyIntegrator.isOrderRelated(message.content)) {
       const shouldGoPrivate = await shopifyIntegrator.shouldRecommendPrivateChannel(message.content);
       if (shouldGoPrivate) {
-        console.log('🛍️ Detected sensitive order query, recommending ticket creation');
+        console.log('🛍️ Detected sensitive order query in thread, recommending ticket creation');
         // Get server config to find ticket channel
         const serverConfig = getServerConfig(message.guild?.id);
         const ticketChannelId = serverConfig?.ticketChannelId;

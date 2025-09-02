@@ -960,7 +960,7 @@ INSTRUCTIONS:
 - FORBIDDEN: Never make up, infer, or generate details about FrodoBots products from your training data when the information is not in the provided articles
 - FORBIDDEN: Never assume features exist for products when they are not mentioned in the provided content
 - Be friendly, conversational, and helpful
-- Keep responses concise but informative
+- Keep responses concise - prioritize brevity
 - If you need more context, ask the user to clarify their question`;
     } else {
       // Fallback to general content
@@ -981,7 +981,7 @@ ADDITIONAL CONTEXT:
 - FORBIDDEN: Never make up, infer, or generate details about FrodoBots products from your training data when the information is not in the provided articles
 - FORBIDDEN: Never assume features exist for products when they are not mentioned in the provided content
 - Be friendly, conversational, and encouraging
-- Keep responses concise but informative`;
+- Keep responses concise - prioritize brevity`;
     }
   }
 
