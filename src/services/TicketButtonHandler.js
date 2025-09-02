@@ -72,7 +72,7 @@ class TicketButtonHandler {
           break;
         }
         case 'category_software': {
-          responseContent = "✅ **Software/Setup** selected!\n\nSelect a product for software assistance:";
+          responseContent = "✅ **Setup & Access** selected!\n\nSelect a product for software assistance:";
           const softwareButtons = this.createProductButtons(interaction.guild.id);
           components = Object.values(softwareButtons).filter(Boolean);
           break;
@@ -86,7 +86,7 @@ class TicketButtonHandler {
           break;
         }
         case 'category_billing': {
-          responseContent = "✅ **Billing/Account** selected!\n\nOur billing team will assist you with account and payment issues. Please describe your billing question or concern.";
+          responseContent = "✅ **Billing & Account** selected!\n\nOur billing team will assist you with account and payment issues. Please describe your billing question or concern.";
           break;
         }
         case 'category_other': {

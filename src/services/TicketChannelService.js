@@ -364,12 +364,42 @@ class TicketChannelService {
       const channelId = message.channel.id;
       await message.channel.sendTyping();
       
-      // Get product articles for the selected product
-      const articles = await this.articleService.getArticlesByCategory(ticketState.product);
-      const productDisplayName = this.getProductDisplayName(ticketState.product);
-      const systemContent = buildSystemPrompt(articles, productDisplayName);
-      
-      // Initialize conversation with product-specific content
+      // RETRIEVAL-FIRST: Try semantic retrieval over product docs
+      let systemContent = null;
+      try {
+        const structured = await this.articleService.getStructuredArticlesByCategory(ticketState.product);
+        // Lazy-embed and rank articles by similarity to the user message
+        const { default: embeddingService } = await import('./EmbeddingService.js');
+        const queryVec = await embeddingService.embedText(message.content.toLowerCase());
+        const topK = parseInt(process.env.TICKET_RETRIEVAL_TOP_K || '10', 10);
+        const minScore = parseFloat(process.env.TICKET_RETRIEVAL_MIN_SCORE || '0.25');
+
+        // Attach embeddings lazily
+        const corpus = [];
+        for (const item of structured) {
+          if (!item.embedding && item.content) {
+            item.embedding = await embeddingService.embedText(item.content);
+          }
+          if (item.embedding?.length) {
+            corpus.push({ id: item.url, vector: item.embedding, payload: item });
+          }
+        }
+
+        const ranked = embeddingService.constructor.topK(queryVec, corpus, topK);
+        const filtered = ranked.filter(r => (r.score || 0) >= minScore).map(r => r.payload);
+        const joined = filtered.map(a => a.content);
+
+        const contentForPrompt = joined.length > 0 ? joined.join('\n\n---\n\n') : await this.articleService.getArticlesByCategory(ticketState.product);
+        const productDisplayName = this.getProductDisplayName(ticketState.product);
+        systemContent = buildSystemPrompt(contentForPrompt, productDisplayName);
+      } catch (retrievalError) {
+        console.error('❌ Ticket retrieval error, falling back to heuristic:', retrievalError.message);
+        const articles = await this.articleService.getArticlesByCategory(ticketState.product);
+        const productDisplayName = this.getProductDisplayName(ticketState.product);
+        systemContent = buildSystemPrompt(articles, productDisplayName);
+      }
+
+      // Initialize conversation with grounded system content
       await this.conversationService.initializeConversation(channelId, systemContent, false);
       this.conversationService.addUserMessage(channelId, message.content, false);
       
@@ -430,10 +460,10 @@ class TicketChannelService {
     const categoryNames = {
       'category_hardware': 'Hardware Issue',
       'category_bug': 'Bug Report', 
-      'category_billing': 'Billing/Account',
+      'category_billing': 'Billing & Account',
       'category_other': 'Other',
       'category_general': 'General Questions',
-      'category_software': 'Software/Setup Issue',
+      'category_software': 'Setup & Access Issue',
       'category_orders': 'Order Status'
     };
     return categoryNames[category] || 'Support';
