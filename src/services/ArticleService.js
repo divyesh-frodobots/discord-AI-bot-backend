@@ -424,44 +424,29 @@ class ArticleService {
     return this.truncateContent(combinedContent);
   }
 
-  // Filter Getting Started content to only include generic or selected-product info
-  filterGettingStartedContent(content, productKey) {
-    const productKeywords = {
-      ufb: [
-        'ufb', 'ultimate fighting bot', 'fighting bot', 'robot fighting', 'ufb.gg', 'ultimate fighting', 'fighting game', 'robot combat'
-      ],
-      earthrover: [
-        'earthrover', 'drive to earn', 'personal bot', 'earth rover', 'driving', 'drive', 'earn', 'fbp', 'frodobots points', 'wallet', 'solana', 'activation'
-      ],
-      earthrover_school: [
-        'school', 'earthrover school', 'learning', 'education', 'mission', 'test drive', 'practice', 'training', 'leaderboard', 'xp', 'experience points'
-      ],
-      sam: [
-        'sam', 'small autonomous mofo', 'autonomous', 'mofo', 'small bot', 'autonomous bot', 'small autonomous', 'sam bot', 'autonomous mofo'
-      ],
-      robotsfun: [
-        'robots fun', 'robot fun', 'fun robots', 'robot activities', 'fun activities', 'robot games', 'robot entertainment', 'fun bot', 'entertainment robots'
-      ]
-    };
-    const allProductKeys = Object.keys(productKeywords);
-    const selectedKeywords = productKeywords[productKey] || [];
-    const otherProductKeywords = allProductKeys.filter(k => k !== productKey).flatMap(k => productKeywords[k]);
+  /**
+   * Get structured articles (url + content) for a product/category
+   * Used by ticket flow retrieval-first RAG
+   */
+  async getStructuredArticlesByCategory(categoryKey) {
+    const categoryUrl = this.CATEGORY_URLS[categoryKey];
+    if (!categoryUrl) throw new Error("Unknown category");
 
-    // Split content into paragraphs/sections
-    const sections = content.split(/\n{2,}/);
-    const filtered = sections.filter(section => {
-      const lower = section.toLowerCase();
-      // If it mentions another product, exclude
-      if (otherProductKeywords.some(word => lower.includes(word))) return false;
-      // If it mentions the selected product, keep
-      if (selectedKeywords.some(word => lower.includes(word))) return true;
-      // If it doesn't mention any product, keep (generic)
-      if (!allProductKeys.some(key => productKeywords[key].some(word => lower.includes(word)))) return true;
-      // Otherwise, exclude
-      return false;
-    });
-    return filtered.join('\n\n');
+    this.discoveredUrls.clear();
+    this.visitedUrls.clear();
+    const articleLinks = await this.extractLinksFromPage(categoryUrl);
+
+    const results = [];
+    for (const url of articleLinks) {
+      const content = await this.getCachedArticle(url);
+      if (content && content.length > 50) {
+        results.push({ url, content });
+      }
+    }
+    return results;
   }
+
+  // filterGettingStartedContent(...) was unused and has been removed
 
 
 }

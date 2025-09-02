@@ -161,7 +161,7 @@ class TicketChannelManager {
         .setEmoji('❓'),
       new ButtonBuilder()
         .setCustomId('category_software')
-        .setLabel('Software/Setup')
+        .setLabel('Setup & Access')
         .setStyle(ButtonStyle.Primary)
         .setEmoji('💻'),
       new ButtonBuilder()
@@ -180,7 +180,7 @@ class TicketChannelManager {
         .setEmoji('🐛'),
       new ButtonBuilder()
         .setCustomId('category_billing')
-        .setLabel('Billing/Account')
+        .setLabel('Billing & Account')
         .setStyle(ButtonStyle.Primary)
         .setEmoji('💳'),
       new ButtonBuilder()

@@ -1,6 +1,7 @@
 import axios from "axios";
 import * as cheerio from 'cheerio';
 import { buildHumanHelpPrompt } from './ArticleService.js';
+import embeddingService from './EmbeddingService.js';
 
 class PublicArticleService {
   constructor() {
@@ -9,8 +10,6 @@ class PublicArticleService {
 
     // NEW: Structured content storage
     this.categorizedContent = {};
-    this.articleMetadata = {};
-    this.contentIndex = {};
 
     // Configuration
     this.REFRESH_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
@@ -208,21 +207,70 @@ class PublicArticleService {
     }
     console.log('[PublicArticleService] Relevant categories to search:', relevantCategories);
     
-    // Get content from relevant categories
+    // Build candidate set from relevant categories
+    let candidateArticles = [];
+    for (const category of relevantCategories) {
+      if (this.categorizedContent[category] && this.categorizedContent[category].length > 0) {
+        candidateArticles.push(...this.categorizedContent[category]);
+      }
+    }
+
+    // RETRIEVAL-FIRST: semantic search with embeddings
+    try {
+      // Ensure article embeddings lazily
+      let prepared = 0;
+      for (const article of candidateArticles) {
+        if (!article.embedding && article.content) {
+          article.embedding = await embeddingService.embedText(article.content);
+          prepared++;
+        }
+      }
+      if (prepared > 0) {
+        console.log(`[PublicArticleService] Prepared embeddings for ${prepared} article(s)`);
+      }
+
+      const queryVec = await embeddingService.embedText(queryLower);
+      const topK = parseInt(process.env.PUBLIC_RETRIEVAL_TOP_K || '12', 10);
+      const minScore = parseFloat(process.env.PUBLIC_RETRIEVAL_MIN_SCORE || '0.22');
+      const ranked = embeddingService.constructor.topK(queryVec, candidateArticles
+        .filter(a => Array.isArray(a.embedding) && a.embedding.length > 0)
+        .map(a => ({ id: a.url, vector: a.embedding, payload: a })), topK);
+
+      // Filter by score threshold
+      const filtered = ranked.filter(r => (r.score || 0) >= minScore).map(r => r.payload);
+
+      // Select by token budget
+      let selectedContent = [];
+      let totalTokens = 0;
+      for (const article of filtered) {
+        const articleTokens = this._estimateTokens(article.content);
+        if (totalTokens + articleTokens <= maxTokens) {
+          selectedContent.push(article);
+          totalTokens += articleTokens;
+        } else {
+          break;
+        }
+      }
+
+      if (selectedContent.length > 0) {
+        console.log(`[PublicArticleService] Retrieval selected ${selectedContent.length} articles (~${totalTokens} tokens)`);
+        return this._formatContentForAI(selectedContent, query);
+      }
+      console.log('[PublicArticleService] Retrieval returned no results above threshold; falling back to heuristic scoring');
+    } catch (retrievalError) {
+      console.error('[PublicArticleService] Retrieval error, falling back to heuristic:', retrievalError.message);
+    }
+    
+    // HEURISTIC FALLBACK
     let selectedContent = [];
     let totalTokens = 0;
-    
     for (const category of relevantCategories) {
       if (this.categorizedContent[category] && this.categorizedContent[category].length > 0) {
         const categoryContent = this.categorizedContent[category];
-        
-        // Sort articles by relevance score
         const scoredArticles = categoryContent.map(article => ({
           ...article,
           relevanceScore: this._calculateRelevanceScore(queryLower, article)
         })).sort((a, b) => b.relevanceScore - a.relevanceScore);
-        
-        // Add articles until we reach token limit
         for (const article of scoredArticles) {
           const articleTokens = this._estimateTokens(article.content);
           if (totalTokens + articleTokens <= maxTokens) {
@@ -232,7 +280,6 @@ class PublicArticleService {
             break;
           }
         }
-        console.log(`[PublicArticleService] Category ${category}: selected ${selectedContent.length} articles so far (tokens ~${totalTokens})`);
       }
     }
     
@@ -689,6 +736,21 @@ ${article.content}
         const articles = await this._fetchCategoryDirectly(config.url, category);
         this.categorizedContent[category] = articles;
         console.log(`[PublicArticleService] Category ${category}: ${articles.length} articles`);
+        // Pre-compute embeddings lazily in the background (best-effort)
+        (async () => {
+          let prepared = 0;
+          for (const a of articles) {
+            try {
+              if (!a.embedding && a.content) {
+                a.embedding = await embeddingService.embedText(a.content);
+                prepared++;
+              }
+            } catch {}
+          }
+          if (prepared > 0) {
+            console.log(`[PublicArticleService] Precomputed embeddings for ${prepared} ${category} article(s)`);
+          }
+        })();
       } catch (error) {
         console.error(`[PublicArticleService] Error fetching category ${category}:`, error);
       }
@@ -837,41 +899,7 @@ ${article.content}
 
   // Deprecated crawl methods removed as we now fetch categories directly
 
-  async fetchArticleText(url) {
-    try {
-      const { data } = await axios.get(url, {
-        timeout: 10000,
-        headers: {
-          "User-Agent": "Mozilla/5.0 (compatible; UFB-Bot/1.0)",
-        },
-      });
-      const $ = cheerio.load(data);
-      let content = "";
-      let mediaContent = "";
-      const articleElement = $("article");
-      if (articleElement.length > 0) {
-        content = articleElement.text();
-        mediaContent = this.extractMediaContent($, articleElement, url);
-      } else {
-        const mainElement = $("main");
-        if (mainElement.length > 0) {
-          content = mainElement.text();
-          mediaContent = this.extractMediaContent($, mainElement, url);
-        } else {
-          const bodyElement = $("body");
-          content = bodyElement.text();
-          mediaContent = this.extractMediaContent($, bodyElement, url);
-        }
-      }
-      const cleanText = content.replace(/\s+/g, " ").trim();
-      const textWithClickableUrls = this.cleanUrlsForDiscord(cleanText);
-      const combinedContent = textWithClickableUrls + (mediaContent ? "\n\n" + mediaContent : "");
-      return combinedContent;
-    } catch (err) {
-      console.error(`Error fetching article ${url}:`, err.message);
-      return null;
-    }
-  }
+  // fetchArticleText(url) is deprecated in favor of _fetchStructuredArticle and is no longer used
 
   extractMediaContent($, element, baseUrl) {
     const mediaItems = [];
