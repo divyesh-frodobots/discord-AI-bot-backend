@@ -94,7 +94,7 @@ class TicketButtonHandler {
           break;
         }
         case 'category_orders': {
-          responseContent = "✅ **Order Status** selected!\n\n📦 **Order Status Help:**\n\nI can help you check your order status! Please provide:\n- Your **order number** (e.g., #1234)\n- Your **email address** used for the order\n";
+          responseContent = "✅ **Order Status** selected!\n\n📦 I can help you check your order status! Please provide:\n- Your **order number** (e.g., #1234)\n- Your **email address** used for the order\n";
           break;
         }
         default: {

@@ -125,14 +125,26 @@ class TicketChannelService {
 
     // Step 6: Validate category selection first
     if (!ticketState.category) {
-      // Don't send duplicate messages - the welcome message already has buttons
-      const noCategoryResponse = 'Please select a category using the buttons above to get started.';
-      await message.reply({ content: noCategoryResponse, flags: ['SuppressEmbeds'] });
+      const allowWithoutCategory = String(process.env.TICKET_ALLOW_AI_WITHOUT_CATEGORY || 'true').toLowerCase() === 'true';
+      if (!allowWithoutCategory) {
+        // Don't send duplicate messages - the welcome message already has buttons
+        const noCategoryResponse = 'Please select a category using the buttons above to get started.';
+        await message.reply({ content: noCategoryResponse, flags: ['SuppressEmbeds'] });
+        return;
+      }
+      // Allowed: proceed with a general, multi-product response
+      await this.generateAIResponseGeneric(message, ticketState);
       return;
     }
 
     // Step 7: Validate product selection (skip for order status category)
     if (!ticketState.product) {
+      const allowWithoutProductForGeneral = String(process.env.TICKET_ALLOW_AI_WITHOUT_PRODUCT_FOR_GENERAL || 'true').toLowerCase() === 'true';
+      const isGeneralLike = ticketState.category === 'category_general' || ticketState.category === 'category_software';
+      if (allowWithoutProductForGeneral && isGeneralLike) {
+        await this.generateAIResponseNoProductForGeneral(message, ticketState);
+        return;
+      }
       await this.requestProductSelection(message);
       return;
     }
@@ -321,6 +333,115 @@ class TicketChannelService {
     // Log interaction
     if (this.loggingService) {
       await this.loggingService.logTicketInteraction(message, noProductResponse, null, false);
+    }
+  }
+
+  /**
+   * Generate AI response using general multi-product context when category is not selected
+   * @param {Object} message - Discord message object
+   * @param {Object} ticketState - Current ticket state
+   */
+  async generateAIResponseGeneric(message, ticketState) {
+    try {
+      // Shopify handling even without category, to catch order details early
+      try {
+        const shopifyResponse = await shopifyIntegrator.handleTicketMessage(message, ticketState);
+        if (shopifyResponse) {
+          if (!this.replyGuards.has(message.channel.id)) {
+            this.replyGuards.add(message.channel.id);
+            try {
+              await message.reply({ content: shopifyResponse.content, flags: ['SuppressEmbeds'] });
+            } finally {
+              setTimeout(() => this.replyGuards.delete(message.channel.id), 1500);
+            }
+          }
+          if (this.loggingService) {
+            await this.loggingService.logTicketInteraction(message, shopifyResponse.content, ticketState?.product || null, false);
+          }
+          return;
+        }
+      } catch (shopifyError) {
+        console.error('❌ Shopify integration error in generic flow (continuing to AI):', shopifyError.message);
+      }
+
+      const channelId = message.channel.id;
+      await message.channel.sendTyping();
+
+      const allArticles = await this.articleService.getAllArticles();
+      const systemContent = buildSystemPrompt(allArticles, 'FrodoBots (General Support)', { allowCrossProduct: true });
+
+      await this.conversationService.initializeConversation(channelId, systemContent, false);
+      this.conversationService.addUserMessage(channelId, message.content, false);
+
+      await message.channel.sendTyping();
+      const aiMessages = this.conversationService.getConversationHistory(channelId, false);
+      const aiResponse = await this.aiService.generateResponse(aiMessages, message.guild.id);
+
+      if (aiResponse && aiResponse.isValid) {
+        await message.reply({ content: aiResponse.response, flags: ['SuppressEmbeds'] });
+        this.conversationService.addAssistantMessage(channelId, aiResponse.response, false);
+        if (this.loggingService) {
+          await this.loggingService.logTicketInteraction(message, aiResponse.response, null, false);
+        }
+      } else {
+        await this.sendFallbackResponse(message, ticketState);
+      }
+    } catch (e) {
+      console.error('❌ Error in generateAIResponseGeneric:', e);
+      await this.sendFallbackResponse(message, ticketState);
+    }
+  }
+
+  /**
+   * Generate AI response for General/Setup categories without a selected product.
+   * Attempts cross-product retrieval to ground in the best product; falls back to generic.
+   * @param {Object} message - Discord message object
+   * @param {Object} ticketState - Current ticket state
+   */
+  async generateAIResponseNoProductForGeneral(message, ticketState) {
+    try {
+      // Try to detect best product corpus
+      const cross = await this.crossProductRetrieval(message.content, null);
+      const channelId = message.channel.id;
+
+      if (cross) {
+        const productDisplayName = this.getProductDisplayName(cross.product);
+        const systemContent = buildSystemPrompt(cross.content, productDisplayName, { allowCrossProduct: true });
+
+        // Optionally autoset product based on confidence threshold
+        const autosetThreshold = parseFloat(process.env.TICKET_AUTOSET_PRODUCT_MIN_SCORE || '0.34');
+        if (!Number.isNaN(autosetThreshold) && typeof cross.score === 'number' && cross.score >= autosetThreshold) {
+          try {
+            await this.ticketSelectionService.updateField(channelId, 'product', cross.product);
+            ticketState.product = cross.product;
+          } catch (setErr) {
+            console.warn('⚠️ Could not autoset product from cross-product detection:', setErr.message);
+          }
+        }
+
+        await message.channel.sendTyping();
+        await this.conversationService.initializeConversation(channelId, systemContent, false);
+        this.conversationService.addUserMessage(channelId, message.content, false);
+
+        await message.channel.sendTyping();
+        const aiMessages = this.conversationService.getConversationHistory(channelId, false);
+        const aiResponse = await this.aiService.generateResponse(aiMessages, message.guild.id);
+        if (aiResponse && aiResponse.isValid) {
+          await message.reply({ content: aiResponse.response, flags: ['SuppressEmbeds'] });
+          this.conversationService.addAssistantMessage(channelId, aiResponse.response, false);
+          if (this.loggingService) {
+            await this.loggingService.logTicketInteraction(message, aiResponse.response, ticketState?.product || cross.product || null, false);
+          }
+          return;
+        }
+        // Fall through to generic if AI invalid
+      }
+
+      // Fallback: generic response
+      await this.generateAIResponseGeneric(message, ticketState);
+    } catch (e) {
+      console.error('❌ Error in generateAIResponseNoProductForGeneral:', e);
+      await this.sendFallbackResponse(message, ticketState);
     }
   }
 
