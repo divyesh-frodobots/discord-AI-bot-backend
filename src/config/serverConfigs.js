@@ -101,5 +101,5 @@ export function getSupportTeamId(guildId) {
 // Helper function to get server-specific fallback response
 export function getServerFallbackResponse(guildId) {
   const supportTeamId = getSupportTeamId(guildId);
-  return `Thanks for reaching out!  \n<@&${supportTeamId}> will review your request and get back to you as soon as possible. \n\n**Support Hours:** Mon-Fri, 10am-6pm SGT. \n(*AI bot will no longer respond to messages in this ticket.*)`;
+  return `We've received your request!  \n<@&${supportTeamId}> will review it and get back to you shortly. \n\n**Support Hours:** Mon-Fri, 10am-6pm SGT. \n(*AI bot will no longer respond to messages in this ticket.*)`;
 } 

@@ -103,9 +103,7 @@ class ShopifyTicketIntegrator {
       content: `We've received your follow-up on order #${orderNumber}. ${supportTags} will get back to you with this.
 
 **Support Hours:** Mon-Fri, 10am-6pm SGT
-
-**Order Number:** ${orderNumber}
-**Email:** ${ticketState.lastOrderEmail || 'Not specified'} (edited)`,
+`,
       shouldContinueToAI: false,
       escalateToSupport: true
     };

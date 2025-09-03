@@ -78,7 +78,7 @@ class TicketButtonHandler {
           break;
         }
         case 'category_hardware': {
-          responseContent = "✅ **Hardware Issue** selected!\n\n**Hardware Support Instructions:**\nFor hardware issues, our support team will need to assist you directly. Please provide:\n\n**1. Bot ID (3-word code)** - Provide the 3-word code of your bot (e.g., silver fox echo) (required)\n**2. Problem Description** - Describe your hardware problem in detail\n**3. Photos/Videos** - Attach clear photos or a short video showing the issue\n\nOnce you provide this information, we'll get you connected with a technician.";
+          responseContent = "✅ **Hardware Issue** selected!\n\nPlease provide:\n• **Bot ID** (3-word code, e.g., silver fox echo)\n• **Problem description** (what’s happening)\n• **Photos/videos** (clear shots or a short clip of the issue)";
           break;
         }
         case 'category_bug': {
@@ -151,11 +151,8 @@ class TicketButtonHandler {
         return;
       }
 
-      // Step 2: Send thinking message while fetching articles
-      const loadingText = this.getProductLoadingMessage(productInfo);
-      const thinkingMessage = await interaction.channel.send({
-        content: loadingText
-      });
+      // Step 2: (Disabled) Previously sent a thinking message while fetching articles
+      let thinkingMessage = null;
 
       try {
         // Step 3: Get product articles and setup conversation
@@ -171,25 +168,31 @@ class TicketButtonHandler {
           humanHelp: false,
         });
 
-        // Step 5: Delete thinking message and send ready message
-        await thinkingMessage.delete();
+        // Step 5: Send ready message
+        if (thinkingMessage) {
+          await thinkingMessage.delete();
+        }
         await interaction.channel.send({
           content: this.getProductReadyMessage(productInfo)
         });
 
       } catch (articleError) {
         console.error('❌ Error fetching articles:', articleError);
-        // Delete thinking message and send error message
+        // Delete thinking message (if any) and send error message
         try {
-          await thinkingMessage.delete();
+          if (thinkingMessage) {
+            await thinkingMessage.delete();
+          }
           await interaction.channel.send({
             content: `❌ **Sorry, I'm having trouble setting up ${productInfo.displayName} support right now.**\nPlease try selecting the product again, or ask to talk to team for immediate help.`
           });
         } catch (deleteError) {
           // If delete fails, edit instead
-          await thinkingMessage.edit({
-            content: `❌ **Sorry, I'm having trouble setting up ${productInfo.displayName} support right now.**\nPlease try selecting the product again, or ask to talk to team for immediate help.`
-          });
+          if (thinkingMessage) {
+            await thinkingMessage.edit({
+              content: `❌ **Sorry, I'm having trouble setting up ${productInfo.displayName} support right now.**\nPlease try selecting the product again, or ask to talk to team for immediate help.`
+            });
+          }
         }
         throw articleError; // Re-throw to be caught by outer try-catch
       }
