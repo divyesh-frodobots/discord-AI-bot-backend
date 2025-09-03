@@ -341,15 +341,22 @@ class PublicContentManager {
       return "No relevant information found. Please ask to talk to team for specific help.";
     }
 
-    const formattedSections = contentSelection.selectedContent.map(content => {
-      return `## ${content.title}
-Category: ${content.category}
-Relevance Score: ${content.relevanceScore}
+    // Group by category to enable multi-product answers
+    const byCategory = contentSelection.selectedContent.reduce((acc, c) => {
+      acc[c.category] = acc[c.category] || [];
+      acc[c.category].push(c);
+      return acc;
+    }, {});
+
+    const formattedSections = Object.entries(byCategory).map(([category, items]) => {
+      const header = `### Product: ${category}`;
+      const body = items.map(content => `## ${content.title}
 URL: ${content.url}
 
 ${content.content}
 
----`;
+---`).join('\n\n');
+      return `${header}\n${body}`;
     });
 
     const header = `QUERY: "${query}"
@@ -372,9 +379,10 @@ RELEVANT INFORMATION:
   /**
    * Create enhanced system prompt with query-specific content
    */
-  createEnhancedSystemPrompt(query, relevantContent, allowedProducts = []) {
+  createEnhancedSystemPrompt(query, relevantContent, allowedProducts = [], options = {}) {
     const analysis = this.analyzeQuery(query);
     const multiProduct = Array.isArray(allowedProducts) && allowedProducts.length > 1;
+    const allowCrossProduct = options.allowCrossProduct !== false; // default true
     
     return `You are a helpful assistant for FrodoBots, operating as a Discord bot within the FrodoBots Discord server.
 
@@ -398,7 +406,7 @@ INSTRUCTIONS:
 - If you need more context, ask the user to clarify their question
 - ${multiProduct ? 'IMPORTANT: If the question is unclear or could apply to multiple products, ask: "Which product is this about?" Options: ' + allowedProducts.join(', ') + '.' : 'Always maintain conversation context and refer to previous messages when relevant'}
 ${multiProduct ? '' : '- Always maintain conversation context and refer to previous messages when relevant'}
-
+      
 Response formatting:
 - Start with the direct answer immediately
 - Use simple, natural language
@@ -409,15 +417,16 @@ DISCORD CONTEXT:
 - You are running as a Discord bot, already within the FrodoBots Discord server
 - Users are interacting with you directly through Discord messages
 - If users need human support, they can ask to "talk to team" right here in Discord
-
+      
 CRITICAL INSTRUCTIONS:
 1. Focus on answering the specific question: "${query}"
 2. Use ONLY the relevant information provided above
-3. If the information doesn't cover the question after clarification, be honest and suggest talking to team
-4. Be conversational and maintain context throughout the conversation
-5. DO NOT mention website chat widgets or external contact methods - you're already in Discord with them
-6. DO NOT add generic closing statements - end responses naturally
-7. For technical questions not covered in the provided information, say "I don't have specific information about that. You can ask to talk to team for more detailed help."
+3. ${allowCrossProduct ? 'Do NOT ask the user to switch products or click buttons; answer directly using the relevant information above, even if multiple products are possible.' : 'If multiple products are possible, ask the user which product they mean.'}
+4. If the information doesn't cover the question after clarification, be honest and suggest talking to team
+5. Be conversational and maintain context throughout the conversation
+6. DO NOT mention website chat widgets or external contact methods - you're already in Discord with them
+7. DO NOT add generic closing statements - end responses naturally
+8. For technical questions not covered in the provided information, say "I don't have specific information about that. You can ask to talk to team for more detailed help."
 
 Remember: Provide accurate, helpful information based on the relevant content provided. When users need additional support, remind them they can ask to "talk to team" right here in Discord.`;
   }

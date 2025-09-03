@@ -1,5 +1,6 @@
 import axios from "axios";
 import * as cheerio from 'cheerio';
+import PublicArticleService, { contentService as publicContentService } from './PublicArticleService.js';
 
 class ArticleService {
   constructor() {
@@ -306,22 +307,10 @@ class ArticleService {
     }
   }
 
-  // Get all article URLs by crawling from the base URL
+  // Deprecated: Crawling is managed by the unified content service now
   async getAllArticleUrls() {
-    console.log("Starting crawl from base URL:", this.BASE_URL);
-
-    // Reset tracking sets
-    this.discoveredUrls.clear();
-    this.visitedUrls.clear();
-
-    // Start crawling from the base URL
-    const crawledPages = await this.crawlPages(this.BASE_URL);
-
-    // Extract unique URLs
-    const urls = [...new Set(crawledPages.map(page => page.url))];
-    console.log(`Crawling completed. Found ${urls.length} unique pages.`);
-
-    return urls;
+    console.log("[ArticleService] getAllArticleUrls is deprecated; returning empty list");
+    return [];
   }
 
   async getCachedArticle(url) {
@@ -337,52 +326,22 @@ class ArticleService {
     return this.cachedArticles[url];
   }
 
-  // Fetch all articles and combine their content with caching
+  // Unified: delegate to publicContentService for combined content
   async getAllArticles() {
-    const now = Date.now();
-
-    // Return cached content if it's still fresh
-    if (
-      this.cachedContent &&
-      now - this.lastContentFetch < this.CONTENT_CACHE_DURATION
-    ) {
-      console.log("Using cached article content");
-      return this.cachedContent;
+    try {
+      // Join all cached categories into one string from the singleton
+      const categories = publicContentService.categorizedContent || {};
+      const allArticles = Object.values(categories).flat();
+      const combined = allArticles.map(a => a.content).join("\n\n---\n\n");
+      return this.truncateContent(combined);
+    } catch (e) {
+      console.warn('[ArticleService] getAllArticles fallback (empty) due to content service not ready');
+      return '';
     }
-
-    const allUrls = await this.getAllArticleUrls();
-    console.log(`Fetching content from ${allUrls.length} articles...`);
-
-    // Fetch articles in parallel with concurrency limit
-    const batchSize = this.CONCURRENT_REQUESTS;
-    const allArticles = [];
-
-    for (let i = 0; i < allUrls.length; i += batchSize) {
-      const batch = allUrls.slice(i, i + batchSize);
-      const batchPromises = batch.map((url) => this.getCachedArticle(url));
-      const batchResults = await Promise.all(batchPromises);
-      allArticles.push(...batchResults);
-    }
-
-    const validArticles = allArticles.filter((article) => article !== null);
-    console.log(`Successfully loaded ${validArticles.length} articles`);
-
-    const combinedContent = validArticles.join("\n\n---\n\n");
-    const truncatedContent = this.truncateContent(combinedContent);
-    const estimatedTokens = this.estimateTokens(truncatedContent);
-
-    console.log(`Combined content estimated tokens: ${estimatedTokens}`);
-
-    // Cache the result
-    this.cachedContent = truncatedContent;
-    this.lastContentFetch = now;
-
-    return truncatedContent;
   }
 
   async initialize() {
-    // This method is kept for compatibility but does nothing
-    // Article loading is handled on-demand by getAllArticles()
+    // No-op. Content is initialized by the singleton at startup.
   }
 
   // Get cache statistics
@@ -406,22 +365,24 @@ class ArticleService {
   }
 
   async getArticlesByCategory(categoryKey) {
-    const categoryUrl = this.CATEGORY_URLS[categoryKey];
-    if (!categoryUrl) throw new Error("Unknown category");
-
-    // Only extract direct article links from the collection page
-    this.discoveredUrls.clear();
-    this.visitedUrls.clear();
-    const articleLinks = await this.extractLinksFromPage(categoryUrl);
-
-    // Fetch and combine content from only those direct article links
-    const allArticles = [];
-    for (const url of articleLinks) {
-      const content = await this.getCachedArticle(url);
-      if (content) allArticles.push(content);
+    try {
+      // Use singleton cache (already initialized on startup)
+      return await publicContentService.getArticlesByCategory(categoryKey);
+    } catch (e) {
+      // Fallback to legacy method if PAS fails
+      const categoryUrl = this.CATEGORY_URLS[categoryKey];
+      if (!categoryUrl) throw new Error("Unknown category");
+      this.discoveredUrls.clear();
+      this.visitedUrls.clear();
+      const articleLinks = await this.extractLinksFromPage(categoryUrl);
+      const allArticles = [];
+      for (const url of articleLinks) {
+        const content = await this.getCachedArticle(url);
+        if (content) allArticles.push(content);
+      }
+      const combinedContent = allArticles.join("\n\n---\n\n");
+      return this.truncateContent(combinedContent);
     }
-    const combinedContent = allArticles.join("\n\n---\n\n");
-    return this.truncateContent(combinedContent);
   }
 
   /**
@@ -429,21 +390,26 @@ class ArticleService {
    * Used by ticket flow retrieval-first RAG
    */
   async getStructuredArticlesByCategory(categoryKey) {
-    const categoryUrl = this.CATEGORY_URLS[categoryKey];
-    if (!categoryUrl) throw new Error("Unknown category");
-
-    this.discoveredUrls.clear();
-    this.visitedUrls.clear();
-    const articleLinks = await this.extractLinksFromPage(categoryUrl);
-
-    const results = [];
-    for (const url of articleLinks) {
-      const content = await this.getCachedArticle(url);
-      if (content && content.length > 50) {
-        results.push({ url, content });
+    try {
+      // Use singleton cache (already initialized on startup)
+      const structured = await publicContentService.getStructuredArticlesByCategory(categoryKey);
+      // Normalize shape to legacy {url, content}
+      return structured.map(a => ({ url: a.url, content: a.content }));
+    } catch (e) {
+      const categoryUrl = this.CATEGORY_URLS[categoryKey];
+      if (!categoryUrl) throw new Error("Unknown category");
+      this.discoveredUrls.clear();
+      this.visitedUrls.clear();
+      const articleLinks = await this.extractLinksFromPage(categoryUrl);
+      const results = [];
+      for (const url of articleLinks) {
+        const content = await this.getCachedArticle(url);
+        if (content && content.length > 50) {
+          results.push({ url, content });
+        }
       }
+      return results;
     }
-    return results;
   }
 
   // filterGettingStartedContent(...) was unused and has been removed
@@ -457,7 +423,8 @@ class ArticleService {
  * @param {string} productName - The product name (e.g., 'UFB', 'Earthrover').
  * @returns {string} The system prompt for GPT.
  */
-export function buildSystemPrompt(articleContent, productName) {
+export function buildSystemPrompt(articleContent, productName, options = {}) {
+  const allowCrossProduct = !!options.allowCrossProduct;
   let contentString = "";
 
   // If articleContent is an array of objects, join their content fields
@@ -482,12 +449,17 @@ CONVERSATION GUIDELINES:
 - FORBIDDEN: Never generate answers from your training data about FrodoBots products when the information is not in the provided articles
 - Be friendly and conversational while staying focused on FrodoBots support
 
-CRITICAL PRODUCT CONSTRAINT:
+${allowCrossProduct
+  ? `CROSS-PRODUCT HANDLING:
+- The user may mention multiple products. Prioritize answering with the information provided for ${productName}.
+- Do NOT ask the user to switch products or click buttons; just answer directly for ${productName} if the question can be addressed with the information above.
+- Only if the question is entirely unrelated to ${productName} and cannot be answered from the information above, briefly ask one clarifying question; otherwise suggest talking to team.`
+  : `CRITICAL PRODUCT CONSTRAINT:
 - You are ONLY authorized to answer questions about ${productName}
 - If a user asks about other FrodoBots products (UFB, Earthrover School, SAM, Robots Fun, etc.), politely redirect them to ask about ${productName} instead
 - Only provide information that is specifically about ${productName} or general FrodoBots information that applies to ${productName}
 - If someone asks about a different product, say something like "I'm here to help with ${productName} questions. For questions about other products, please select the correct product using the buttons above."
-- CRITICAL: If someone asks about features not mentioned in the ${productName} articles above (like test drives, features from other products, etc.), say "I don't have specific information about that for ${productName}. You can ask to talk to team for more detailed help."
+- CRITICAL: If someone asks about features not mentioned in the ${productName} articles above (like test drives, features from other products, etc.), say "I don't have specific information about that for ${productName}. You can ask to talk to team for more detailed help."`}
 
 ${contentString}
 

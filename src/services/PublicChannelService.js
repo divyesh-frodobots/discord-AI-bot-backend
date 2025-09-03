@@ -99,16 +99,11 @@ class PublicChannelService {
       return { shouldRespond: false, reason: 'no_mention' };
     }
 
-    // Rate limiting
-    if (this._isRateLimited(userId)) {
+    // Rate limiting (consolidated)
+    const rate = this.checkRateLimit(userId);
+    if (!rate.allowed) {
       console.log(`⏱️ Rate limited user ${userId} in ${channelName}`);
       return { shouldRespond: false, reason: 'rate_limited' };
-    }
-
-    // Check if user already has an active thread
-    if (await this.hasActiveThread(userId, channelId, client)) {
-      console.log(`🔄 User ${userId} already has active thread in ${channelName}`);
-      return { shouldRespond: false, reason: 'has_active_thread' };
     }
 
     // All checks passed
@@ -131,6 +126,12 @@ class PublicChannelService {
       });
       // Store in Redis for persistence (allow multiple threads)
       await redis.set(`publicthread:${userId}:${channelId}:${thread.id}`, 'active');
+      // Also keep a pointer to the latest thread for quick lookups
+      try {
+        await redis.setEx(`publicthread:${userId}:${channelId}`, 86400, thread.id);
+      } catch (e) {
+        console.error('❌ Error setting public thread pointer key:', e);
+      }
       console.log(`📝 Created thread "${threadName}" (ID: ${thread.id}) for user ${message.author.username}`);
       if (client) {
         await this.logThreadCreation(
@@ -260,16 +261,16 @@ class PublicChannelService {
       const content = message.content.toLowerCase().trim();
       const cleanContent = content.replace(/<@!?\d+>/g, '').trim(); // Remove mentions
 
+      // Immediate escalation for explicit phrases
+      if (this._hasExplicitHumanRequest(cleanContent)) {
+        console.log(`🤖 Explicit human request detected: "${message.content}"`);
+        return true;
+      }
+
       // Layer 1: Skip simple greetings
       if (this._isSimpleGreeting(cleanContent)) {
         console.log(`🤖 Skipping escalation analysis for simple greeting: "${message.content}"`);
         return false;
-      }
-
-      // Layer 2: Explicit human requests
-      if (this._hasExplicitHumanRequest(content)) {
-        console.log(`🤖 Explicit human request detected: "${message.content}"`);
-        return true;
       }
 
       // Layer 3: AI analysis for complex messages
@@ -356,53 +357,7 @@ class PublicChannelService {
     return false;
   }
 
-  /**
-   * Check if user is rate limited
-   */
-  _isRateLimited(userId) {
-    const now = Date.now();
-    const userLimits = this.userRateLimits.get(userId);
-    
-    if (!userLimits) {
-      // First time user, not rate limited
-      this.userRateLimits.set(userId, {
-        lastRequest: now,
-        requestCount: 1,
-        windowStart: now
-      });
-      return false;
-    }
-    
-    // Check if we're in a new time window (reset every minute)
-    const windowDuration = 60 * 1000; // 1 minute
-    if (now - userLimits.windowStart > windowDuration) {
-      // New window, reset counters
-      userLimits.windowStart = now;
-      userLimits.requestCount = 1;
-      userLimits.lastRequest = now;
-      return false;
-    }
-    
-    // Check rate limits
-    const maxRequestsPerMinute = botRules.PUBLIC_CHANNELS.RATE_LIMITS.MAX_QUERIES_PER_MINUTE;
-    const cooldownSeconds = botRules.PUBLIC_CHANNELS.RATE_LIMITS.COOLDOWN_SECONDS;
-    
-    // Check cooldown
-    if (now - userLimits.lastRequest < cooldownSeconds * 1000) {
-      return true; // Still in cooldown
-    }
-    
-    // Check request count
-    if (userLimits.requestCount >= maxRequestsPerMinute) {
-      return true; // Too many requests
-    }
-    
-    // Update counters
-    userLimits.requestCount++;
-    userLimits.lastRequest = now;
-    
-    return false;
-  }
+  // (Removed duplicate rate limit method in favor of checkRateLimit)
 
   /**
    * Generate descriptive thread name from message content
@@ -475,14 +430,8 @@ class PublicChannelService {
       { role: "system", content: systemContent },
       { role: "user", content: message.content }
     ];
-    const guildId = message.guild?.id;
-
-    const aiResponse = await aiService.generateResponse(messages);
-    
-    const isEscalation = aiResponse && 
-                        aiResponse.isValid && 
-                        aiResponse.response.includes(getServerFallbackResponse(guildId));
-    
+    const result = await aiService.classifyEscalation(messages);
+    const isEscalation = result === 'ESCALATE';
     console.log(`🤖 AI escalation analysis for "${message.content}": ${isEscalation ? 'ESCALATE' : 'CONTINUE'}`);
     return isEscalation;
   }
@@ -498,7 +447,23 @@ class PublicChannelService {
     const sessionKey = `${userId}:${channelId}`;
     
     this.userThreads.delete(sessionKey);
-    await redis.del(`publicthread:${userId}:${channelId}:*`); // Clean up all thread keys for this user/channel
+    // Clean up pointer key
+    try { await redis.del(`publicthread:${userId}:${channelId}`); } catch {}
+    // Clean up all per-thread keys using SCAN to avoid blocking/wildcards
+    try {
+      const pattern = `publicthread:${userId}:${channelId}:*`;
+      let cursor = 0;
+      do {
+        const res = await redis.scan(cursor, { MATCH: pattern, COUNT: 100 });
+        cursor = parseInt(res.cursor || res[0] || '0', 10);
+        const keys = res.keys || res[1] || [];
+        if (keys.length > 0) {
+          await redis.del(keys);
+        }
+      } while (cursor !== 0);
+    } catch (e) {
+      console.error('❌ Error scanning/deleting public thread keys:', e);
+    }
     this.escalatedUsers.delete(sessionKey);
     
     console.log(`✨ Cleaned up complete session for user ${userId} in channel ${channelId}`);
