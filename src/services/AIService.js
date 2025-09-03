@@ -100,6 +100,36 @@ Be the helpful agent they need - direct, knowledgeable, and concise. Answer only
     }
   }
 
+  /**
+   * Lightweight classifier for escalation detection.
+   * Returns strictly 'ESCALATE' or 'CONTINUE'.
+   */
+  async classifyEscalation(messages) {
+    try {
+      // Ensure system instruction is present and minimal
+      const hasSystem = Array.isArray(messages) && messages[0] && messages[0].role === 'system';
+      const systemMsg = {
+        role: 'system',
+        content: 'You are a strict classifier. Read the user message and respond with ONLY one word: ESCALATE or CONTINUE. No punctuation, no explanation.'
+      };
+      const strictMessages = hasSystem ? messages : [systemMsg, ...messages];
+
+      const completion = await this.openai.chat.completions.create({
+        model: 'gpt-4.1-mini',
+        messages: strictMessages,
+        temperature: 0,
+        max_tokens: 2
+      });
+      const reply = (completion.choices[0].message.content || '').trim().toUpperCase();
+      if (reply.startsWith('ESCALATE')) return 'ESCALATE';
+      return 'CONTINUE';
+    } catch (err) {
+      console.error('Escalation classifier error:', err.message);
+      // Be conservative and continue so we do not over-escalate on failure
+      return 'CONTINUE';
+    }
+  }
+
   validateResponse(reply, confidence, guildId) {
     // Check if the reply is meaningful
     if (!reply || reply.trim().length < 5) {

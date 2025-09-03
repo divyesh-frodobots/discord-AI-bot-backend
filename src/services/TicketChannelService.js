@@ -1,5 +1,6 @@
 import { buildSystemPrompt, buildHumanHelpPrompt } from './ArticleService.js';
 import { getServerConfig, getServerFallbackResponse } from '../config/serverConfigs.js';
+import TicketChannelUtil from '../utils/TicketChannelUtil.js';
 import botRules from '../config/botRules.js';
  import shopifyIntegrator from '../shopify/ShopifyIntegrator.js';
 import PermissionService from './PermissionService.js';
@@ -21,6 +22,7 @@ class TicketChannelService {
     this.articleService = articleService;
     this.aiService = aiService;
     this.loggingService = null;
+    this.replyGuards = new Set();
   }
 
   /**
@@ -47,17 +49,7 @@ class TicketChannelService {
    * @returns {boolean} True if it's a ticket channel
    */
   isTicketChannel(channel) {
-    // Get server-specific configuration
-    const serverConfig = getServerConfig(channel.guild.id);
-    
-    // If no server config found, this server is not configured for tickets
-    if (!serverConfig) {
-      console.log(`⚠️ Server ${channel.guild.name} (${channel.guild.id}) is not configured in serverConfigs.js - skipping ticket channel check`);
-      return false;
-    }
-    
-    // Only return true for threads whose parent is the server's support ticket channel
-    return channel.isThread && channel.isThread() && channel.parentId === serverConfig.ticketChannelId;
+    return TicketChannelUtil.isTicketChannel(channel);
   }
 
   /**
@@ -255,6 +247,14 @@ class TicketChannelService {
    */
   async detectHumanHelpRequest(message) {
     try {
+      // Heuristic first: explicit phrases should escalate immediately
+      const contentLower = (message.content || '').toLowerCase();
+      const explicitPhrases = botRules.TICKET_CHANNELS?.ESCALATION_PHRASES || [];
+      if (explicitPhrases.some(p => contentLower.includes(p))) {
+        console.log('🔎 Explicit human-help phrase detected in ticket message → ESCALATE');
+        return true;
+      }
+
       const systemContent = buildHumanHelpPrompt();
       const messages = [
         { role: "system", content: systemContent },
@@ -262,17 +262,11 @@ class TicketChannelService {
       ];
 
       await message.channel.sendTyping();
-      const aiResponse = await this.aiService.generateResponse(messages, message.guild.id);
-      
-      // Check if AI detected escalation intent
-      const isEscalationRequest = aiResponse && 
-             aiResponse.isValid && 
-             aiResponse.response.trim().toUpperCase() === "ESCALATE";
-
+      const result = await this.aiService.classifyEscalation(messages);
+      const isEscalationRequest = result === 'ESCALATE';
       if (isEscalationRequest) {
         console.log(`🚨 Human help request detected from ${message.author.username}: "${message.content}"`);
       }
-
       return isEscalationRequest;
 
     } catch (error) {
@@ -344,7 +338,14 @@ class TicketChannelService {
         const shopifyResponse = await shopifyIntegrator.handleTicketMessage(message, ticketState);
         if (shopifyResponse) {
           console.log('🛍️ Shopify handled ticket message');
-          await message.reply({ content: shopifyResponse.content, flags: ['SuppressEmbeds'] });
+          if (!this.replyGuards.has(message.channel.id)) {
+            this.replyGuards.add(message.channel.id);
+            try {
+              await message.reply({ content: shopifyResponse.content, flags: ['SuppressEmbeds'] });
+            } finally {
+              setTimeout(() => this.replyGuards.delete(message.channel.id), 1500);
+            }
+          }
           
           // Log Shopify interaction
           if (this.loggingService) {
@@ -389,14 +390,48 @@ class TicketChannelService {
         const filtered = ranked.filter(r => (r.score || 0) >= minScore).map(r => r.payload);
         const joined = filtered.map(a => a.content);
 
-        const contentForPrompt = joined.length > 0 ? joined.join('\n\n---\n\n') : await this.articleService.getArticlesByCategory(ticketState.product);
-        const productDisplayName = this.getProductDisplayName(ticketState.product);
-        systemContent = buildSystemPrompt(contentForPrompt, productDisplayName);
+        // Compute an aggregate score for the current product (average of topK)
+        const selectedAvg = ranked.length
+          ? ranked.reduce((s, r) => s + (r.score || 0), 0) / ranked.length
+          : 0;
+
+        // Always compute cross-product candidate and compare scores
+        const cross = await this.crossProductRetrieval(message.content, ticketState.product);
+        const minSwitch = parseFloat(process.env.TICKET_CROSS_PRODUCT_MIN_SCORE || '0.28');
+        const delta = parseFloat(process.env.TICKET_CROSS_PRODUCT_DELTA || '0.05');
+
+        const shouldSwitch = !!(cross && cross.score >= Math.max(minSwitch, selectedAvg + delta));
+
+        if (shouldSwitch) {
+          const productDisplayName = this.getProductDisplayName(cross.product);
+          systemContent = buildSystemPrompt(cross.content, productDisplayName, { allowCrossProduct: true });
+        } else if (joined.length > 0) {
+          const contentForPrompt = joined.join('\n\n---\n\n');
+          const productDisplayName = this.getProductDisplayName(ticketState.product);
+          systemContent = buildSystemPrompt(contentForPrompt, productDisplayName, { allowCrossProduct: true });
+        } else {
+          const contentForPrompt = await this.articleService.getArticlesByCategory(ticketState.product);
+          const productDisplayName = this.getProductDisplayName(ticketState.product);
+          systemContent = buildSystemPrompt(contentForPrompt, productDisplayName, { allowCrossProduct: true });
+        }
       } catch (retrievalError) {
         console.error('❌ Ticket retrieval error, falling back to heuristic:', retrievalError.message);
-        const articles = await this.articleService.getArticlesByCategory(ticketState.product);
-        const productDisplayName = this.getProductDisplayName(ticketState.product);
-        systemContent = buildSystemPrompt(articles, productDisplayName);
+        // Try cross-product retrieval as a secondary path before falling back
+        try {
+          const cross = await this.crossProductRetrieval(message.content, ticketState.product);
+          if (cross) {
+            const productDisplayName = this.getProductDisplayName(cross.product);
+            systemContent = buildSystemPrompt(cross.content, productDisplayName, { allowCrossProduct: true });
+          } else {
+            const articles = await this.articleService.getArticlesByCategory(ticketState.product);
+            const productDisplayName = this.getProductDisplayName(ticketState.product);
+            systemContent = buildSystemPrompt(articles, productDisplayName, { allowCrossProduct: true });
+          }
+        } catch (crossError) {
+          const articles = await this.articleService.getArticlesByCategory(ticketState.product);
+          const productDisplayName = this.getProductDisplayName(ticketState.product);
+          systemContent = buildSystemPrompt(articles, productDisplayName, { allowCrossProduct: true });
+        }
       }
 
       // Initialize conversation with grounded system content
@@ -433,6 +468,77 @@ class TicketChannelService {
       if (this.loggingService) {
         await this.loggingService.logError(error, 'Ticket message handling failed');
       }
+    }
+  }
+
+  /**
+   * Cross-product retrieval: if current product returns no hits, try other products and
+   * return the best-matching product's concatenated content for the prompt.
+   */
+  async crossProductRetrieval(query, currentProduct) {
+    try {
+      const products = ['ufb','earthrover','earthrover_school','sam','robotsfun','et_fugi'].filter(p => p !== currentProduct);
+      const { default: embeddingService } = await import('./EmbeddingService.js');
+      const queryVec = await embeddingService.embedText((query || '').toLowerCase());
+      let best = null;
+      // Heuristic signal boosts per product to resolve mixed-intent queries
+      const productSignals = {
+        earthrover_school: [
+          /\btest\s?drive\b/i,
+          /drive\.frodobots\.com/i,
+          /\bcheckpoint\b/i,
+          /bind( your)? keys?/i,
+          /\bcones?\b/i,
+          /\bscan\b/i,
+          /school/i
+        ],
+        earthrover: [/rovers\.frodobots\.com/i, /personal bot/i, /earthrover\b(?! school)/i],
+        robotsfun: [/robots\.fun/i, /ai agent/i, /agent\b/i],
+        ufb: [/ufb\.gg/i, /fighting/i],
+        sam: [/\bsam\b/i, /autonomous/i],
+        et_fugi: [/et\s?fugi/i, /competition/i]
+      };
+      const computeSignalBoost = (productKey) => {
+        try {
+          const patterns = productSignals[productKey] || [];
+          let hits = 0;
+          for (const rgx of patterns) { if (rgx.test(query)) hits++; }
+          // Stronger boost for explicit test drive signals on school
+          const baseBoost = productKey === 'earthrover_school' ? 0.18 : 0.12;
+          return Math.min(0.36, hits * baseBoost);
+        } catch { return 0; }
+      };
+      for (const product of products) {
+        try {
+          const structured = await this.articleService.getStructuredArticlesByCategory(product);
+          const corpus = [];
+          for (const item of structured) {
+            if (!item.embedding && item.content) {
+              item.embedding = await embeddingService.embedText(item.content);
+            }
+            if (item.embedding?.length) corpus.push({ id: item.url, vector: item.embedding, payload: item });
+          }
+          if (corpus.length === 0) continue;
+          const ranked = embeddingService.constructor.topK(queryVec, corpus, parseInt(process.env.TICKET_RETRIEVAL_TOP_K || '8', 10));
+          const agg = ranked.reduce((sum, r) => sum + (r.score || 0), 0) / Math.max(1, ranked.length);
+          const boost = computeSignalBoost(product);
+          const aggregate = agg + boost;
+          if (!best || aggregate > best.score) {
+            const joined = ranked.slice(0, 6).map(r => r.payload.content).join('\n\n---\n\n');
+            best = { product, score: aggregate, content: joined };
+          }
+        } catch {}
+      }
+      // Threshold guard to avoid random jumps
+      const minSwitch = parseFloat(process.env.TICKET_CROSS_PRODUCT_MIN_SCORE || '0.28');
+      if (best && best.score >= minSwitch) {
+        console.log(`🌐 Cross-product retrieval selected ${best.product} (avgScore=${best.score.toFixed(3)})`);
+        return best;
+      }
+      return null;
+    } catch (e) {
+      console.error('Cross-product retrieval failed:', e.message);
+      return null;
     }
   }
 

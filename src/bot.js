@@ -11,7 +11,7 @@ import TicketSelectionService from './services/TicketSelectionService.js';
 import LoggingService from './services/LoggingService.js';
 import PublicChannelService from './services/PublicChannelService.js';
 
-import PublicArticleService from "./services/PublicArticleService.js";
+import { contentService as publicContentService } from "./services/PublicArticleService.js";
 import PublicContentManager from "./services/PublicContentManager.js";
 import dynamicChannelService from './services/DynamicPublicChannelService.js';
 import googleDocsContentService from './services/GoogleDocsContentService.js';
@@ -52,8 +52,8 @@ const ticketSelectionService = new TicketSelectionService();
 const ticketChannelService = new TicketChannelService(ticketSelectionService, articleService, aiService);
 const conversationService = new ConversationService(articleService);
 
-// Public channel services
-const publicArticleService = new PublicArticleService();
+// Public channel services (use singleton for SoT)
+const publicArticleService = publicContentService;
 const publicChannelService = new PublicChannelService();
 const publicConversationService = new ConversationService(publicArticleService);
 const publicContentManager = new PublicContentManager();
@@ -108,7 +108,7 @@ client.once("ready", async () => {
  */
 async function initializeServices() {
   try {
-    // Initialize public articles
+    // Initialize public articles (eager load all categories)
     await publicArticleService.initialize();
 
     // Log initialization status
@@ -464,12 +464,9 @@ async function generateAIResponse(context) {
       const analysis = publicContentManager.analyzeQuery(context.message.content);
       const mentioned = Array.isArray(analysis?.productMentions) ? analysis.productMentions : [];
       if (mentioned.length > 0) {
-        if (allowedProducts.length > 0) {
-          const narrowed = allowedProducts.filter(p => mentioned.includes(p));
-          if (narrowed.length > 0) effectiveAllowedProducts = narrowed;
-        } else {
-          effectiveAllowedProducts = mentioned;
-        }
+        // Merge channel-allowed with mentioned to allow cross-product retrieval (no hard bias)
+        const merged = Array.from(new Set([...(allowedProducts || []), ...mentioned]));
+        effectiveAllowedProducts = merged;
       }
     } catch {}
 
@@ -495,22 +492,15 @@ async function generateAIResponse(context) {
     }
 
     // Create enhanced system prompt with query-specific content
-    const productConstraint = (effectiveAllowedProducts && effectiveAllowedProducts.length)
-      ? `IMPORTANT: This channel is limited to these products only: ${effectiveAllowedProducts.join(', ')}. If the question is about another product, ask the user to switch to the correct product.`
-      : '';
-
     const enhancedSystemPrompt = publicContentManager.createEnhancedSystemPrompt(
       context.message.content,
       combinedContent,
-      effectiveAllowedProducts
+      effectiveAllowedProducts,
+      { allowCrossProduct: true }
     );
 
-    const finalSystemPrompt = productConstraint
-      ? `${productConstraint}\n\n${enhancedSystemPrompt}`
-      : enhancedSystemPrompt;
-
     // Initialize conversation with enhanced system prompt
-    await publicConversationService.initializeConversation(conversationKey, finalSystemPrompt, false);
+    await publicConversationService.initializeConversation(conversationKey, enhancedSystemPrompt, false);
     publicConversationService.addUserMessage(conversationKey, context.message.content, false);
 
     // Get conversation history and generate response
