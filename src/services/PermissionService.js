@@ -1,4 +1,5 @@
 import { getServerConfig } from '../config/serverConfigs.js';
+import TicketChannelUtil from '../utils/TicketChannelUtil.js';
 import botRules from '../config/botRules.js';
 
 /**
@@ -94,16 +95,7 @@ class PermissionService {
    * @returns {boolean} True if channel is a ticket channel
    */
   static isTicketChannel(channel) {
-    if (!channel.isThread()) {
-      return false;
-    }
-
-    const serverConfig = getServerConfig(channel.guild.id);
-    if (!serverConfig) {
-      return false;
-    }
-
-    return channel.parentId === serverConfig.ticketChannelId;
+    return TicketChannelUtil.isTicketChannel(channel);
   }
 
   /**

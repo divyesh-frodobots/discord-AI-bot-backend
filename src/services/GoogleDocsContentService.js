@@ -1,6 +1,6 @@
 import axios from 'axios';
 import redis from './redisClient.js';
-import dynamicChannelService from './DynamicPublicChannelService.js';
+import dynamicChannelService from './dynamic/DynamicPublicChannelService.js';
 
 /**
  * Google Docs Content Service

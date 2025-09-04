@@ -1,6 +1,7 @@
 import shopifyOrderDetector from './ShopifyOrderDetector.js';
 import { ChannelType } from 'discord.js';
 import { getServerConfig } from '../config/serverConfigs.js';
+import dynamicTicketChannelService from '../services/dynamic/DynamicTicketChannelService.js';
 
 /**
  * ShopifyPublicIntegrator - Simplified public channel integration
@@ -39,12 +40,13 @@ class ShopifyPublicIntegrator {
 
       console.log(`🛍️ [Public] Order-related question detected in ${message.channel.id}`);
 
-      // Get ticket channel for this server
-      const serverConfig = getServerConfig(message.guild?.id);
-      const ticketChannelId = serverConfig?.ticketChannelId;
+      // Get ticket channel for this server (dynamic preferred)
+      const guildId = message.guild?.id;
+      const dynamicTicketParents = dynamicTicketChannelService.getCachedTicketChannels(guildId);
+      const ticketChannelId = dynamicTicketParents[0] || null;
 
       if (!ticketChannelId) {
-        console.warn('❌ No ticket channel configured for server');
+        console.warn('❌ No dynamic ticket channel configured for server');
         return null;
       }
 

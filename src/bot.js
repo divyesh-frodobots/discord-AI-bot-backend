@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { Client, GatewayIntentBits, ChannelType, ButtonBuilder, ActionRowBuilder, ButtonStyle } from "discord.js";
 import { getServerFallbackResponse, getServerConfig } from './config/serverConfigs.js';
+import dynamicTicketChannelService from './services/dynamic/DynamicTicketChannelService.js';
 
 // Import services
 import ArticleService from "./services/ArticleService.js";
@@ -13,7 +14,7 @@ import PublicChannelService from './services/PublicChannelService.js';
 
 import { contentService as publicContentService } from "./services/PublicArticleService.js";
 import PublicContentManager from "./services/PublicContentManager.js";
-import dynamicChannelService from './services/DynamicPublicChannelService.js';
+import dynamicChannelService from './services/dynamic/DynamicPublicChannelService.js';
 import googleDocsContentService from './services/GoogleDocsContentService.js';
 import shopifyIntegrator from './shopify/ShopifyIntegrator.js';
 import shopifyPublicIntegrator from './shopify/ShopifyPublicIntegrator.js';
@@ -101,6 +102,11 @@ client.once("ready", async () => {
 
   // Set up periodic maintenance
   setupPeriodicMaintenance();
+
+  // Start dynamic ticket channel cache refresher
+  dynamicTicketChannelService.startCacheRefresher(10000);
+  // Start public channel cache refresher
+  dynamicChannelService.startCacheRefresher(10000);
 });
 
 /**
@@ -246,9 +252,10 @@ async function handlePublicChannelFlow(message) {
       const shouldGoPrivate = await shopifyIntegrator.shouldRecommendPrivateChannel(message.content);
       if (shouldGoPrivate) {
         console.log('🛍️ Detected sensitive order query in thread, recommending ticket creation');
-        // Get server config to find ticket channel
-        const serverConfig = getServerConfig(message.guild?.id);
-        const ticketChannelId = serverConfig?.ticketChannelId;
+        // Dynamic ticket channels only
+        const guildId = message.guild?.id;
+        const dynamicTicketParents = dynamicTicketChannelService.getCachedTicketChannels(guildId);
+        const ticketChannelId = dynamicTicketParents[0] || null;
         
         if (ticketChannelId) {
           // Use the Shopify redirect message
@@ -810,15 +817,15 @@ async function handleCreateOrderTicket(interaction) {
   try {
     await interaction.deferReply({ ephemeral: true });
     
-    // Get server configuration
-    const serverConfig = getServerConfig(interaction.guild.id);
-    if (!serverConfig) {
-      await interaction.editReply({ content: '❌ Server configuration not found.' });
+    // Create ticket thread under the first dynamic ticket parent
+    const guildId = interaction.guild.id;
+    const dynamicTicketParents = dynamicTicketChannelService.getCachedTicketChannels(guildId);
+    const parentId = dynamicTicketParents[0] || null;
+    if (!parentId) {
+      await interaction.editReply({ content: '❌ No dynamic ticket channel configured for this server.' });
       return;
     }
-
-    // Create ticket thread
-    const supportChannel = await interaction.guild.channels.fetch(serverConfig.ticketChannelId);
+    const supportChannel = await interaction.guild.channels.fetch(parentId);
     if (!supportChannel) {
       await interaction.editReply({ content: '❌ Support channel not found.' });
       return;
