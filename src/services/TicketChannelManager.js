@@ -1,6 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
-import constants from "../config/constants.js";
-import { getServerConfig, getServerFallbackResponse } from '../config/serverConfigs.js';
+import { getServerFallbackResponse } from '../config/serverConfigs.js';
+import googleDocsContentService from './GoogleDocsContentService.js';
 import TicketChannelUtil from '../utils/TicketChannelUtil.js';
 
 /**
@@ -140,6 +140,21 @@ class TicketChannelManager {
       });
 
       console.log(`✅ Welcome message sent to ticket: ${channel.name}`);
+
+      // Step 3: Warm up Google Docs cache for this ticket's parent channel (if configured)
+      try {
+        const parentId = channel.parentId;
+        if (parentId) {
+          const warmed = await googleDocsContentService.getChannelGoogleDocsContent(channel.guild.id, parentId, 'welcome-warmup');
+          if (warmed) {
+            console.log('📄 [Ticket] Prefetched Google Docs for parent', parentId, 'len=', warmed.length);
+          } else {
+            console.log('📄 [Ticket] No Google Docs to prefetch for parent', parentId);
+          }
+        }
+      } catch (warmErr) {
+        console.warn('⚠️ Ticket Google Docs warmup failed:', warmErr.message);
+      }
     } catch (error) {
       console.error('❌ Error sending welcome message to ticket channel:', error);
     }

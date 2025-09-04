@@ -1,5 +1,6 @@
 import { buildSystemPrompt, buildHumanHelpPrompt } from './ArticleService.js';
-import { getServerConfig, getServerFallbackResponse } from '../config/serverConfigs.js';
+import googleDocsContentService from './GoogleDocsContentService.js';
+import { getServerFallbackResponse } from '../config/serverConfigs.js';
 import TicketChannelUtil from '../utils/TicketChannelUtil.js';
 import botRules from '../config/botRules.js';
  import shopifyIntegrator from '../shopify/ShopifyIntegrator.js';
@@ -369,7 +370,22 @@ class TicketChannelService {
       await message.channel.sendTyping();
 
       const allArticles = await this.articleService.getAllArticles();
-      const systemContent = buildSystemPrompt(allArticles, 'FrodoBots (General Support)', { allowCrossProduct: true });
+      let systemContent = buildSystemPrompt(allArticles, 'FrodoBots (General Support)', { allowCrossProduct: true });
+
+      // Enrich with ticket parent Google Docs even before category/product selection
+      try {
+        const parentId = message.channel.parentId;
+        if (parentId) {
+          const docsContent = await googleDocsContentService.getChannelGoogleDocsContent(message.guild.id, parentId, message.content);
+          if (docsContent) {
+            systemContent = (systemContent && typeof systemContent === 'string')
+              ? (`CHANNEL-SPECIFIC DOCUMENTATION:\n${docsContent}\n\n` + systemContent)
+              : (`CHANNEL-SPECIFIC DOCUMENTATION:\n${docsContent}`);
+          }
+        }
+      } catch (docErr) {
+        console.warn('⚠️ Ticket Google Docs enrichment (no-category generic) failed:', docErr.message);
+      }
 
       await this.conversationService.initializeConversation(channelId, systemContent, false);
       this.conversationService.addUserMessage(channelId, message.content, false);
@@ -407,7 +423,7 @@ class TicketChannelService {
 
       if (cross) {
         const productDisplayName = this.getProductDisplayName(cross.product);
-        const systemContent = buildSystemPrompt(cross.content, productDisplayName, { allowCrossProduct: true });
+        let systemContent = buildSystemPrompt(cross.content, productDisplayName, { allowCrossProduct: true });
 
         // Optionally autoset product based on confidence threshold
         const autosetThreshold = parseFloat(process.env.TICKET_AUTOSET_PRODUCT_MIN_SCORE || '0.34');
@@ -421,6 +437,21 @@ class TicketChannelService {
         }
 
         await message.channel.sendTyping();
+        // Enrich with ticket parent Google Docs even without product
+        try {
+          const parentId = message.channel.parentId;
+          if (parentId) {
+            const docsContent = await googleDocsContentService.getChannelGoogleDocsContent(message.guild.id, parentId, message.content);
+            if (docsContent) {
+              systemContent = (systemContent && typeof systemContent === 'string')
+                ? (`CHANNEL-SPECIFIC DOCUMENTATION:\n${docsContent}\n\n` + systemContent)
+                : (`CHANNEL-SPECIFIC DOCUMENTATION:\n${docsContent}`);
+            }
+          }
+        } catch (docErr) {
+          console.warn('⚠️ Ticket Google Docs enrichment (no-product) failed:', docErr.message);
+        }
+
         await this.conversationService.initializeConversation(channelId, systemContent, false);
         this.conversationService.addUserMessage(channelId, message.content, false);
 
@@ -555,7 +586,22 @@ class TicketChannelService {
         }
       }
 
-      // Initialize conversation with grounded system content
+      // Ticket-channel GOOGLE DOCS: merge any channel-specific docs (parent channel)
+      try {
+        const parentId = message.channel.parentId;
+        if (parentId) {
+          const docsContent = await googleDocsContentService.getChannelGoogleDocsContent(message.guild.id, parentId, message.content);
+          if (docsContent) {
+            systemContent = (systemContent && typeof systemContent === 'string')
+              ? (`CHANNEL-SPECIFIC DOCUMENTATION:\n${docsContent}\n\n` + systemContent)
+              : (`CHANNEL-SPECIFIC DOCUMENTATION:\n${docsContent}`);
+            console.log('📄 [Ticket] Added Google Docs content for parent', parentId, 'length=', docsContent.length);
+          }
+        }
+      } catch (docErr) {
+        console.warn('⚠️ Ticket Google Docs enrichment failed (continuing):', docErr.message);
+      }
+
       await this.conversationService.initializeConversation(channelId, systemContent, false);
       this.conversationService.addUserMessage(channelId, message.content, false);
       

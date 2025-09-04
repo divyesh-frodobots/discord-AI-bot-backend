@@ -1,6 +1,7 @@
 import axios from 'axios';
 import redis from './redisClient.js';
-import dynamicChannelService from './dynamic/DynamicPublicChannelService.js';
+import dynamicPublicChannelService from './dynamic/DynamicPublicChannelService.js';
+import dynamicTicketChannelService from './dynamic/DynamicTicketChannelService.js';
 
 /**
  * Google Docs Content Service
@@ -180,19 +181,21 @@ class GoogleDocsContentService {
    */
   async getChannelGoogleDocsContent(guildId, channelId, userQuery = null) {
     try {
-      // Get Google Docs links for this channel
-      const googleDocLinks = await dynamicChannelService.getChannelGoogleDocLinks(guildId, channelId);
+      // Get Google Docs links for this channel (merge public + ticket sources)
+      const publicLinks = await dynamicPublicChannelService.getChannelGoogleDocLinks(guildId, channelId).catch(() => []);
+      const ticketLinks = await dynamicTicketChannelService.getChannelGoogleDocLinks(guildId, channelId).catch(() => []);
+      const merged = Array.from(new Set([...(publicLinks || []), ...(ticketLinks || [])]));
       
-      if (!googleDocLinks || googleDocLinks.length === 0) {
+      if (!merged || merged.length === 0) {
         console.log(`📄 No Google Docs configured for channel ${channelId}`);
         return null;
       }
 
-      console.log(`📄 Found ${googleDocLinks.length} Google Docs for channel ${channelId}:`);
-      googleDocLinks.forEach((url, i) => console.log(`   ${i + 1}. ${url.substring(0, 80)}...`));
+      console.log(`📄 Found ${merged.length} Google Docs for channel ${channelId}:`);
+      merged.forEach((url, i) => console.log(`   ${i + 1}. ${url.substring(0, 80)}...`));
       
       // Fetch content from all Google Docs in parallel
-      const contentPromises = googleDocLinks.map((url, index) => 
+      const contentPromises = merged.map((url, index) => 
         this.fetchGoogleDocContent(url).catch(error => {
           console.error(`❌ Failed to fetch Google Doc ${index + 1}: ${error.message}`);
           return null;
@@ -202,10 +205,10 @@ class GoogleDocsContentService {
       
       // Filter out failed fetches and log results
       const validContent = contentResults.filter(content => content !== null);
-      const failedCount = googleDocLinks.length - validContent.length;
+      const failedCount = merged.length - validContent.length;
       
       if (failedCount > 0) {
-        console.warn(`⚠️ ${failedCount} out of ${googleDocLinks.length} Google Docs failed to fetch for channel ${channelId}`);
+        console.warn(`⚠️ ${failedCount} out of ${merged.length} Google Docs failed to fetch for channel ${channelId}`);
       }
       
       if (validContent.length === 0) {
@@ -354,7 +357,7 @@ ${obj.content}`;
     try {
       console.log('🔄 Starting daily refresh of all Google Docs content...');
       
-      // Get all guild IDs (you might need to implement this in DynamicPublicChannelService)
+      // Get all channel details across public and ticket
       const allChannelDetails = await this._getAllChannelDetails();
       
       let totalDocs = 0;
@@ -391,28 +394,30 @@ ${obj.content}`;
    */
   async _getAllChannelDetails() {
     try {
-      // This is a simplified approach - you might need to track guild IDs differently
-      // For now, we'll get from Redis keys
-      const pattern = 'public_channels:*';
-      const keys = await redis.keys(pattern);
-      
+      // Collect from public
+      const publicKeys = await redis.keys('public_channels:*');
+      const ticketKeys = await redis.keys('ticket_channels:*');
       const allChannelDetails = [];
-      
-      for (const key of keys) {
+      // Public channels
+      for (const key of publicKeys) {
         const guildId = key.replace('public_channels:', '');
-        const channelDetails = await dynamicChannelService.getChannelDetails(guildId);
-        
+        const channelDetails = await dynamicPublicChannelService.getChannelDetails(guildId);
         for (const channel of channelDetails) {
           if (channel.googleDocLinks && channel.googleDocLinks.length > 0) {
-            allChannelDetails.push({
-              guildId,
-              channelId: channel.channelId,
-              googleDocLinks: channel.googleDocLinks
-            });
+            allChannelDetails.push({ guildId, channelId: channel.channelId, googleDocLinks: channel.googleDocLinks });
           }
         }
       }
-      
+      // Ticket channels
+      for (const key of ticketKeys) {
+        const guildId = key.replace('ticket_channels:', '');
+        const channelDetails = await dynamicTicketChannelService.getChannelDetails(guildId);
+        for (const channel of channelDetails) {
+          if (channel.googleDocLinks && channel.googleDocLinks.length > 0) {
+            allChannelDetails.push({ guildId, channelId: channel.channelId, googleDocLinks: channel.googleDocLinks });
+          }
+        }
+      }
       return allChannelDetails;
     } catch (error) {
       console.error('❌ Error getting all channel details:', error.message);
@@ -454,7 +459,10 @@ ${obj.content}`;
     try {
       if (guildId && channelId) {
         // Refresh specific channel
-        const googleDocLinks = await dynamicChannelService.getChannelGoogleDocLinks(guildId, channelId);
+        // Merge links from both dynamic services to match getChannelGoogleDocsContent
+        const publicLinks = await dynamicPublicChannelService.getChannelGoogleDocLinks(guildId, channelId).catch(() => []);
+        const ticketLinks = await dynamicTicketChannelService.getChannelGoogleDocLinks(guildId, channelId).catch(() => []);
+        const googleDocLinks = Array.from(new Set([...(publicLinks || []), ...(ticketLinks || [])]));
         let refreshed = 0;
         
         for (const url of googleDocLinks) {
