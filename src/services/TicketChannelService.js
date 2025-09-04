@@ -4,6 +4,7 @@ import TicketChannelUtil from '../utils/TicketChannelUtil.js';
 import botRules from '../config/botRules.js';
  import shopifyIntegrator from '../shopify/ShopifyIntegrator.js';
 import PermissionService from './PermissionService.js';
+import embeddingService from './EmbeddingService.js';
 
 /**
  * TicketChannelService - Handles message processing in ticket channels
@@ -491,7 +492,6 @@ class TicketChannelService {
       try {
         const structured = await this.articleService.getStructuredArticlesByCategory(ticketState.product);
         // Lazy-embed and rank articles by similarity to the user message
-        const { default: embeddingService } = await import('./EmbeddingService.js');
         const queryVec = await embeddingService.embedText(message.content.toLowerCase());
         const topK = parseInt(process.env.TICKET_RETRIEVAL_TOP_K || '10', 10);
         const minScore = parseFloat(process.env.TICKET_RETRIEVAL_MIN_SCORE || '0.25');
@@ -598,8 +598,8 @@ class TicketChannelService {
    */
   async crossProductRetrieval(query, currentProduct) {
     try {
-      const products = ['ufb','earthrover','earthrover_school','sam','robotsfun','et_fugi'].filter(p => p !== currentProduct);
-      const { default: embeddingService } = await import('./EmbeddingService.js');
+      const { ALLOWED_PRODUCTS } = await import('../config/products.js');
+      const products = ALLOWED_PRODUCTS.filter(p => p !== currentProduct);
       const queryVec = await embeddingService.embedText((query || '').toLowerCase());
       let best = null;
       // Heuristic signal boosts per product to resolve mixed-intent queries

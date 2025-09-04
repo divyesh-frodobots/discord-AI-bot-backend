@@ -2,7 +2,7 @@ import botRules from '../config/botRules.js';
 import { buildHumanHelpPrompt } from './ArticleService.js';
 import redis from './redisClient.js';
 import { getServerFallbackResponse, getServerConfig } from '../config/serverConfigs.js';
-import dynamicChannelService from './DynamicPublicChannelService.js';
+import dynamicChannelService from './dynamic/DynamicPublicChannelService.js';
 import ConversationKeyUtil from '../utils/ConversationKeyUtil.js';
 
 /**

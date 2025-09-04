@@ -1,4 +1,5 @@
 import { getServerConfig, getServerFallbackResponse, getSupportTeamId } from '../config/serverConfigs.js';
+import dynamicTicketChannelService from './dynamic/DynamicTicketChannelService.js';
 import botRules from '../config/botRules.js';
 
 /**
@@ -58,8 +59,9 @@ class ConfigService {
    * @returns {string|null} Ticket channel ID
    */
   static getTicketChannelId(guildId) {
-    const serverConfig = this.getConfig(guildId);
-    return serverConfig?.ticketChannelId || null;
+    // Dynamic ticket channels only
+    const dynamicParents = dynamicTicketChannelService.getCachedTicketChannels(guildId);
+    return (dynamicParents && dynamicParents.length > 0) ? dynamicParents[0] : null;
   }
 
   /**

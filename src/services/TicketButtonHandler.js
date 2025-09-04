@@ -1,6 +1,7 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from "discord.js";
 import { buildSystemPrompt } from './ArticleService.js';
 import { getServerConfig, getServerFallbackResponse } from '../config/serverConfigs.js';
+import TicketChannelUtil from '../utils/TicketChannelUtil.js';
 
 /**
  * TicketButtonHandler - Handles all button interactions in ticket channels
@@ -440,10 +441,7 @@ class TicketButtonHandler {
    * @returns {boolean} True if it's a ticket channel
    */
   isTicketChannel(channel) {
-    // Get server-specific configuration
-    const serverConfig = getServerConfig(channel.guild?.id);    
-    // Only return true for threads whose parent is the server's support ticket channel
-    return channel.isThread && channel.isThread() && channel.parentId === serverConfig.ticketChannelId;
+    return TicketChannelUtil.isTicketChannel(channel);
   }
 
   /**
