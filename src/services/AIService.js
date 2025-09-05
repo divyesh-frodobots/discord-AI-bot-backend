@@ -86,7 +86,7 @@ Be the helpful agent they need - direct, knowledgeable, and concise. Answer only
         model: "gpt-4.1-mini",
         messages: strictMessages,
         temperature: 0.7, // Slightly reduced for more focused responses
-        max_tokens: 400, // Reduced to encourage concise responses
+        max_tokens: 200, // Reduced to encourage concise responses
         presence_penalty: 0.1, // Slightly reduce repetition
         frequency_penalty: 0.1 // Slightly reduce repetitive phrases
       });
@@ -141,10 +141,12 @@ Be the helpful agent they need - direct, knowledgeable, and concise. Answer only
     }
     // Check for robotic phrases and improve them
     const improvedReply = this.improveResponseTone(reply);
+    // Minimal whitespace compaction to avoid tall messages
+    const compactedReply = this.compactWhitespace(improvedReply);
 
     return {
       isValid: true,
-      response: improvedReply,
+      response: compactedReply,
       confidence: confidence
     };
   }
@@ -199,6 +201,27 @@ Be the helpful agent they need - direct, knowledgeable, and concise. Answer only
     }
 
     return improved;
+  }
+
+  // Compact extra whitespace while preserving basic formatting and lists
+  compactWhitespace(text) {
+    if (!text) return '';
+
+    let out = text.replace(/\r\n/g, '\n');
+
+    // Trim trailing spaces on each line
+    out = out
+      .split('\n')
+      .map(line => line.replace(/[\t ]+$/g, ''))
+      .join('\n');
+
+    // Collapse 3+ consecutive newlines to a single blank line
+    out = out.replace(/\n{3,}/g, '\n\n');
+
+    // Remove blank lines between list/step items ("1.", "-", "*", "•")
+    out = out.replace(/\n\n(?=(?:\s*(?:\d+\.|[-*•])\s))/g, '\n');
+
+    return out.trim();
   }
 
   calculateConfidence(reply, messages) {
