@@ -21,7 +21,7 @@ export default {
   },
 
   MESSAGES: {
-    getFallbackResponse: (supportTeamId = '1384038915106934924') => `We've received your request! \n<@&${supportTeamId}> will review it and get back to you shortly. \n\n**Support Hours:** Mon-Fri, 10am-6pm SGT. \n(*AI bot will no longer respond to messages in this ticket.*)`,
+    getFallbackResponse: (supportTeamId = '1384038915106934924') => `We've received your request! \n<@&${supportTeamId}> will review it and get back to you as soon as possible. \n\n**Support Hours:** Mon-Fri, 10am-6pm SGT. \n(*AI bot will no longer respond to messages in this ticket.*)`,
     CONTENT_TRUNCATED: "[Content truncated due to length limits]",
     BOT_READY: "Bot is ready! Logged in as",
     ARTICLES_LOADED: "Article service initialized successfully",

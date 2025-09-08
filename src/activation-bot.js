@@ -501,7 +501,7 @@ Respond with ONLY one word: "ESCALATE" or "CONTINUE"
 
       // Create custom support message with EarthRovers-specific role
       const supportMessage = `We've received your request!
-<@&${this.config.supportRoleId}> will review it and get back to you shortly.
+<@&${this.config.supportRoleId}> will review it and get back to you as soon as possible.
 
 **Support Hours:** Mon-Fri, 10am-6pm SGT. 
 (*EarthRovers AI bot will no longer respond to messages in this thread.*)`;
