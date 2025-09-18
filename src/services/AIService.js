@@ -12,7 +12,7 @@ class AIService {
     });
 
     // Configurable output length to avoid mid-message truncation
-    this.maxOutputTokens = parseInt(process.env.OPENAI_MAX_TOKENS || '400');
+    this.maxOutputTokens = parseInt(process.env.OPENAI_MAX_TOKENS || '600');
   }
 
   async generateResponse(messages, guildId = null) {
