@@ -10,6 +10,9 @@ class AIService {
     this.openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY
     });
+
+    // Configurable output length to avoid mid-message truncation
+    this.maxOutputTokens = parseInt(process.env.OPENAI_MAX_TOKENS || '400');
   }
 
   async generateResponse(messages, guildId = null) {
@@ -86,7 +89,7 @@ Be the helpful agent they need - direct, knowledgeable, and concise. Answer only
         model: "gpt-4.1-mini",
         messages: strictMessages,
         temperature: 0.7, // Slightly reduced for more focused responses
-        max_tokens: 200, // Reduced to encourage concise responses
+        max_tokens: this.maxOutputTokens, // Configurable output length
         presence_penalty: 0.1, // Slightly reduce repetition
         frequency_penalty: 0.1 // Slightly reduce repetitive phrases
       });
