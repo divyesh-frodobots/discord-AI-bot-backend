@@ -60,6 +60,11 @@ class PublicArticleService {
         keywords: ["et fugi", "ai competition", "competition", "ai"],
         description: "ET Fugi AI competition information"
       },
+      telearms: {
+        url: "https://intercom.help/frodobots/en/collections/16593994-telearms",
+        keywords: ["telearms", "tele arms", "remote", "arm", "mission", "sign up", "log in", "login"],
+        description: "TeleArms missions, sign up and login guidance, TeleArms mission history, score"
+      },
       troubleshooting: {
         url: "https://intercom.help/frodobots/en/collections/3762588-getting-started",
         keywords: ["troubleshoot", "problem", "issue", "error", "fix", "help"],

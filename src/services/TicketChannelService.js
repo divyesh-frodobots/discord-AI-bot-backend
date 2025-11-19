@@ -663,7 +663,8 @@ class TicketChannelService {
         robotsfun: [/robots\.fun/i, /ai agent/i, /agent\b/i],
         ufb: [/ufb\.gg/i, /fighting/i],
         sam: [/\bsam\b/i, /autonomous/i],
-        et_fugi: [/et\s?fugi/i, /competition/i]
+        et_fugi: [/et\s?fugi/i, /competition/i],
+        telearms: [/telearms/i, /remote/i, /arm/i, /mission/i, /score/i, /history/i]
       };
       const computeSignalBoost = (productKey) => {
         try {
@@ -754,7 +755,8 @@ class TicketChannelService {
       'earthrover_school': 'Earthrover School',
       'sam': 'SAM',
       'robotsfun': 'Robots.Fun',
-      'et_fugi': 'ET Fugi'
+      'et_fugi': 'ET Fugi',
+      'telearms': 'TeleArms'
     };
     return productNames[product] || 'FrodoBots Product';
   }

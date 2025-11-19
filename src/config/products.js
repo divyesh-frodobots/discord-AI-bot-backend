@@ -4,7 +4,8 @@ export const ALLOWED_PRODUCTS = [
   'ufb',
   'sam',
   'robotsfun',
-  'et_fugi'
+  'et_fugi',
+  'telearms'
 ];
 
 export const PRODUCT_DISPLAY_NAMES = {
@@ -13,7 +14,8 @@ export const PRODUCT_DISPLAY_NAMES = {
   ufb: 'UFB',
   sam: 'SAM',
   robotsfun: 'Robots.Fun',
-  et_fugi: 'ET Fugi'
+  et_fugi: 'ET Fugi',
+  telearms: 'TeleArms'
 };
 
 export default { ALLOWED_PRODUCTS, PRODUCT_DISPLAY_NAMES };

@@ -371,6 +371,7 @@ class TicketButtonHandler {
       row2 = new ActionRowBuilder();
       row2.addComponents(
         new ButtonBuilder().setCustomId('product_sam').setLabel('SAM').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('product_telearms').setLabel('TeleArms').setStyle(ButtonStyle.Primary),
         new ButtonBuilder()
           .setLabel('Documentation')
           .setStyle(ButtonStyle.Link)
@@ -401,7 +402,8 @@ class TicketButtonHandler {
       'product_earthrover_school': { key: 'earthrover_school', name: 'Earthrover School', displayName: 'Earthrover School' },
       'product_sam': { key: 'sam', name: 'SAM', displayName: 'SAM (Small Autonomous Mofo)' },
       'product_robotsfun': { key: 'robotsfun', name: 'Robots Fun', displayName: 'Robots Fun' },
-      'product_et_fugi': { key: 'et_fugi', name: 'ET Fugi', displayName: 'ET Fugi' }
+      'product_et_fugi': { key: 'et_fugi', name: 'ET Fugi', displayName: 'ET Fugi' },
+      'product_telearms': { key: 'telearms', name: 'TeleArms', displayName: 'TeleArms' }
     };
     
     return productMap[buttonId] || null;

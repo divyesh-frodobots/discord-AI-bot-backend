@@ -408,7 +408,8 @@ export function renderChannelManagerPage() {
             { key: 'ufb', label: 'UFB (Ultimate Fighting Bots)' },
             { key: 'sam', label: 'SAM' },
             { key: 'robotsfun', label: 'Robots.Fun' },
-            { key: 'et_fugi', label: 'ET Fugi' }
+            { key: 'et_fugi', label: 'ET Fugi' },
+            { key: 'telearms', label: 'TeleArms' }
         ];
 
         // Login form handler

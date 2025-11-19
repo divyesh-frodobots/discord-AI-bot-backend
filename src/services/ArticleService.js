@@ -27,7 +27,8 @@ class ArticleService {
       ufb: "https://intercom.help/frodobots/en/collections/12076791-ufb-ultimate-fighting-bots",
       sam: "https://intercom.help/frodobots/en/collections/13197832-sam-small-autonomous-mofo",
       robotsfun: "https://intercom.help/frodobots/en/collections/13197811-robots-fun",
-      et_fugi: "https://intercom.help/frodobots/en/articles/11561671-et-fugi-ai-competition"
+      et_fugi: "https://intercom.help/frodobots/en/articles/11561671-et-fugi-ai-competition",
+      telearms: "https://intercom.help/frodobots/en/collections/16593994-telearms"
     };
   }
 

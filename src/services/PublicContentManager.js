@@ -47,7 +47,8 @@ class PublicContentManager {
         ],
         'ufb': ['ufb', 'ultimate fighting', 'fighting bot', 'battle'],
         'sam': ['sam', 'small autonomous', 'autonomous bot'],
-        'robotsfun': ['robots fun', 'fun', 'entertainment', 'games']
+        'robotsfun': ['robots fun', 'fun', 'entertainment', 'games'],
+        'telearms': ['telearms', 'remote', 'arm', 'mission', 'score', 'history']
       }
     };
 
@@ -91,6 +92,11 @@ class PublicContentManager {
       robotsfun: {
         keywords: ['robots fun', 'fun', 'entertainment', 'games', 'play'],
         description: 'Robots Fun entertainment and gaming content',
+        priority: 5
+      },
+      telearms: {
+        keywords: ['telearms', 'tele arms', 'remote', 'arm', 'mission', 'sign up', 'log in', 'login'],
+        description: 'TeleArms missions, sign up and login guidance',
         priority: 5
       }
     };
