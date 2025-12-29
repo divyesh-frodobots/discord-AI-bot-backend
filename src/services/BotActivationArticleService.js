@@ -252,27 +252,20 @@ class BotActivationArticleService {
       // Extract title
       title = $('title').text() || $('h1').first().text() || '';
       
-      // Try article tag first
-      const articleElement = $("article");
-      if (articleElement.length > 0) {
-        content = articleElement.text();
-      } else {
-        // Try main content area
-        const mainElement = $("main");
-        if (mainElement.length > 0) {
-          content = mainElement.text();
-        } else {
-          // Try content-specific selectors for Intercom help center
-          const contentElement = $(".article__content, .content, .post-content, .article-body");
-          if (contentElement.length > 0) {
-            content = contentElement.text();
-          } else {
-            // Fallback to body content
-            const bodyElement = $("body");
-            content = bodyElement.text();
-          }
+      // Find content element (priority order)
+      const contentElement = $("article").length ? $("article") : 
+                             $("main").length ? $("main") : 
+                             $("body");
+      
+      // Replace links with "text (url)" to preserve URLs
+      contentElement.find('a[href]').each((i, el) => {
+        const href = $(el).attr('href');
+        if (href && !href.startsWith('#')) {
+          $(el).replaceWith(`${$(el).text()} (${href})`);
         }
-      }
+      });
+      
+      content = contentElement.text();
       
       // Clean up the text, convert URLs to clickable format, and combine with title
       const cleanText = content.replace(/\s+/g, " ").trim();
