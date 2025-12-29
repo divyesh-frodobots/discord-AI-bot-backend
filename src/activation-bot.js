@@ -548,9 +548,9 @@ DISCORD CONTEXT:
 
 CRITICAL URL FORMATTING:
 - NEVER format URLs as markdown links [text](url)
-- ALWAYS wrap URLs in angle brackets like: <https://rovers.frodobots.com/>
-- This prevents Discord from showing large preview cards
-- Example: "Visit the SDK here: <https://github.com/frodobots-org/earth-rovers-sdk>"
+- ALWAYS use plain URLs like: https://rovers.frodobots.com/ 
+- Discord will automatically make plain URLs clickable
+- Do NOT add any brackets, parentheses, or markdown formatting around URLs
 
 Help with: activation, Drive to Earn, wallet, FBP, SDK, bot management, troubleshooting.
 For complex issues: suggest "talk to team"
@@ -560,9 +560,10 @@ FORMATTING (Intercom style):
 - Brief intro sentence first
 - Use **bold section headers** for topics
 - Numbered steps for procedures (1., 2., 3.)
-- Include links inline naturally where relevant (plain URLs, no markdown)
-- Keep responses concise - only answer what was asked
-- Do NOT use labels like "Source:" or "Links:" - just include URLs naturally in the text`;
+- Use **Note:** for important callouts
+- Include links inline where relevant (plain URLs, no markdown)
+- End with source article link from documentation
+- Keep responses concise - only answer what was asked`;
   }
 
 

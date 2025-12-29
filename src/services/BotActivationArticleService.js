@@ -258,18 +258,13 @@ class BotActivationArticleService {
                              $("body");
       
       // Replace links with "text (<url>)" to preserve URLs (angle brackets suppress Discord embeds)
-      let linkCount = 0;
       contentElement.find('a[href]').each((i, el) => {
         const href = $(el).attr('href');
         const text = $(el).text().trim();
         if (href && !href.startsWith('#') && text) {
-          $(el).replaceWith(`${text} (<${href}>)`);
-          linkCount++;
+          $(el).replaceWith(`${text} (${href})`);
         }
       });
-      if (linkCount > 0) {
-        console.log(`🔗 Extracted ${linkCount} links from: ${url}`);
-      }
       
       content = contentElement.text();
       
