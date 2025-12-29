@@ -258,12 +258,18 @@ class BotActivationArticleService {
                              $("body");
       
       // Replace links with "text (url)" to preserve URLs
+      let linkCount = 0;
       contentElement.find('a[href]').each((i, el) => {
         const href = $(el).attr('href');
-        if (href && !href.startsWith('#')) {
-          $(el).replaceWith(`${$(el).text()} (${href})`);
+        const text = $(el).text().trim();
+        if (href && !href.startsWith('#') && text) {
+          $(el).replaceWith(`${text} (${href})`);
+          linkCount++;
         }
       });
+      if (linkCount > 0) {
+        console.log(`🔗 Extracted ${linkCount} links from: ${url}`);
+      }
       
       content = contentElement.text();
       
