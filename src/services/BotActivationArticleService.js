@@ -11,10 +11,10 @@ class BotActivationArticleService {
     this.visitedUrls = new Set();
 
     // Configuration specific to EarthRovers
-    this.EARTHROVERS_COLLECTION_URL = "https://intercom.help/frodobots/en/collections/9174353-earthrovers-personal-bots";
+    this.EARTHROVERS_COLLECTION_URL = "https://intercom.help/frodobots/en/collections/9174353-et-fugi-earthrover";
     this.BASE_URL = "https://intercom.help/frodobots/en/";
     this.REFRESH_INTERVAL = 60 * 60 * 1000; // 1 hour
-    this.MAX_TOKENS = 30000; // Increased for GPT-4.1's 1M context window - comprehensive knowledge base
+    this.MAX_TOKENS = 40000; // Increased for GPT-4.1's 1M context window - comprehensive knowledge base
     this.CONTENT_CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
     this.MAX_DEPTH = 5; // Increased for comprehensive content with GPT-4.1
     this.MAX_URLS = 100; // Increased to get full knowledge base
