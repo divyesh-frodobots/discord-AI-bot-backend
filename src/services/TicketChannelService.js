@@ -555,8 +555,12 @@ class TicketChannelService {
         const shouldSwitch = !!(cross && cross.score >= Math.max(minSwitch, selectedAvg + delta));
 
         if (shouldSwitch) {
-          const productDisplayName = this.getProductDisplayName(cross.product);
-          systemContent = buildSystemPrompt(cross.content, productDisplayName, { allowCrossProduct: true });
+          // Keep user's selected product as context, but use cross-product content
+          const userProductName = this.getProductDisplayName(ticketState.product);
+          const crossProductName = this.getProductDisplayName(cross.product);
+          // Mark cross-product content so AI knows it's from another product
+          const crossContent = `[NOTE: The following information is from ${crossProductName} documentation. The user selected ${userProductName}, but we don't have specific ${userProductName} documentation for this topic. Provide the information but acknowledge it may apply differently to ${userProductName}.]\n\n${cross.content}`;
+          systemContent = buildSystemPrompt(crossContent, userProductName, { allowCrossProduct: true });
         } else if (joined.length > 0) {
           const contentForPrompt = joined.join('\n\n---\n\n');
           const productDisplayName = this.getProductDisplayName(ticketState.product);
@@ -572,8 +576,11 @@ class TicketChannelService {
         try {
           const cross = await this.crossProductRetrieval(message.content, ticketState.product);
           if (cross) {
-            const productDisplayName = this.getProductDisplayName(cross.product);
-            systemContent = buildSystemPrompt(cross.content, productDisplayName, { allowCrossProduct: true });
+            // Keep user's selected product as context
+            const userProductName = this.getProductDisplayName(ticketState.product);
+            const crossProductName = this.getProductDisplayName(cross.product);
+            const crossContent = `[NOTE: The following information is from ${crossProductName} documentation. The user selected ${userProductName}, but we don't have specific ${userProductName} documentation for this topic. Provide the information but acknowledge it may apply differently to ${userProductName}.]\n\n${cross.content}`;
+            systemContent = buildSystemPrompt(crossContent, userProductName, { allowCrossProduct: true });
           } else {
             const articles = await this.articleService.getArticlesByCategory(ticketState.product);
             const productDisplayName = this.getProductDisplayName(ticketState.product);
