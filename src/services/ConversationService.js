@@ -1,5 +1,4 @@
-
-import ConversationKeyUtil from '../utils/ConversationKeyUtil.js';
+import ConversationKeyUtil from "../utils/ConversationKeyUtil.js";
 
 class ConversationService {
   constructor(articleService) {
@@ -34,6 +33,7 @@ ${articles}
 CONVERSATION GUIDELINES:
 - You can engage in basic conversation, greetings, and general chat
 - For technical questions about FrodoBots products, you must ONLY use information from the articles above
+- STRICT ADHERENCE: If the user asks about a specific technology, protocol, or feature (like UART, Serial, 48V, etc.) that is NOT mentioned in the documentation below, you MUST say you do not have that information.
 - If technical information is not in the provided articles, say "I don't have specific information about that. You can ask to talk to team for more detailed help."
 - Be friendly, conversational, and concise while staying focused on FrodoBots support
 
@@ -61,7 +61,7 @@ CRITICAL INSTRUCTIONS:
 10. Focus on providing the information directly without unnecessary closing phrases
 11. For technical questions not covered in the articles, say "I don't have specific information about that. You can ask to talk to team for more detailed help."
 
-Remember: Always build on previous context and make connections to earlier parts of the conversation. When users need additional support, remind them they can ask to "talk to team" right here in Discord.`
+Remember: Always build on previous context and make connections to earlier parts of the conversation. When users need additional support, remind them they can ask to "talk to team" right here in Discord.`,
       };
       console.log("System message initialized and cached");
     }
@@ -69,7 +69,12 @@ Remember: Always build on previous context and make connections to earlier parts
   }
 
   // NEW: Initialize OR UPDATE the system message per turn (keeps history)
-  async initializeConversation(conversationId, articles = null, isUserBased = true, userQuery = null) {
+  async initializeConversation(
+    conversationId,
+    articles = null,
+    isUserBased = true,
+    userQuery = null,
+  ) {
     const key = isUserBased ? `user_${conversationId}` : conversationId;
 
     // Ensure conversation container exists
@@ -83,10 +88,17 @@ Remember: Always build on previous context and make connections to earlier parts
       newSystemMessage = { role: "system", content: articles };
     } else if (userQuery && this.articleService.getRelevantContent) {
       try {
-        const relevantContent = await this.articleService.getRelevantContent(userQuery);
-        newSystemMessage = await this._createQuerySpecificSystemMessage(userQuery, relevantContent);
+        const relevantContent =
+          await this.articleService.getRelevantContent(userQuery);
+        newSystemMessage = await this._createQuerySpecificSystemMessage(
+          userQuery,
+          relevantContent,
+        );
       } catch (error) {
-        console.error("Error getting query-specific content, falling back to general:", error);
+        console.error(
+          "Error getting query-specific content, falling back to general:",
+          error,
+        );
         const fallback = await this.initializeSystemMessage();
         newSystemMessage = fallback;
       }
@@ -116,6 +128,7 @@ ${relevantContent}
 
 CONVERSATION GUIDELINES:
 - Answer the user's question based ONLY on the relevant information provided above
+- STRICT ADHERENCE: If the user asks about a specific technology, protocol, or feature (like UART, Serial, 48V, etc.) that is NOT mentioned in the relevant information above, you MUST say you do not have that information.
 - If the information doesn't cover their specific question, say "I don't have specific information about that. You can ask to talk to team for more detailed help."
 - Be friendly, conversational, and helpful
 - Keep responses concise but informative
@@ -136,50 +149,59 @@ CRITICAL INSTRUCTIONS:
 6. DO NOT add generic closing statements - end responses naturally
 7. For technical questions not covered in the provided information, say "I don't have specific information about that. You can ask to talk to team for more detailed help."
 
-Remember: Provide accurate, helpful information based on the relevant content provided. When users need additional support, remind them they can ask to "talk to team" right here in Discord.`
+Remember: Provide accurate, helpful information based on the relevant content provided. When users need additional support, remind them they can ask to "talk to team" right here in Discord.`,
     };
   }
 
   addUserMessage(conversationId, message, isUserBased = true) {
     const key = isUserBased ? `user_${conversationId}` : conversationId;
-    
+
     // Ensure conversation is initialized
     if (!this.userConversations[key]) {
       console.warn(`⚠️ Conversation ${key} not initialized, initializing now`);
       this.userConversations[key] = [];
     }
-    
+
     this.userConversations[key].push({ role: "user", content: message });
-    console.log(`📝 Added user message to conversation ${key}. Total messages: ${this.userConversations[key].length}`);
+    console.log(
+      `📝 Added user message to conversation ${key}. Total messages: ${this.userConversations[key].length}`,
+    );
     this.manageConversationLength(key);
   }
 
   addAssistantMessage(conversationId, message, isUserBased = true) {
     const key = isUserBased ? `user_${conversationId}` : conversationId;
-    
+
     // Ensure conversation is initialized
     if (!this.userConversations[key]) {
       console.warn(`⚠️ Conversation ${key} not initialized, initializing now`);
       this.userConversations[key] = [];
     }
-    
+
     this.userConversations[key].push({ role: "assistant", content: message });
-    console.log(`🤖 Added assistant message to conversation ${key}. Total messages: ${this.userConversations[key].length}`);
+    console.log(
+      `🤖 Added assistant message to conversation ${key}. Total messages: ${this.userConversations[key].length}`,
+    );
     this.manageConversationLength(key);
   }
 
   manageConversationLength(conversationKey) {
     const totalContent = this.userConversations[conversationKey]
-      .map(msg => msg.content)
-      .join(' ');
+      .map((msg) => msg.content)
+      .join(" ");
 
     const estimatedTokens = this.estimateTokens(totalContent);
 
     if (estimatedTokens > this.MAX_CONVERSATION_TOKENS) {
       const systemMessage = this.userConversations[conversationKey][0];
       const recentMessages = this.userConversations[conversationKey].slice(-6);
-      this.userConversations[conversationKey] = [systemMessage, ...recentMessages];
-      console.log(`Conversation history truncated for ${conversationKey} to prevent token overflow. Kept ${recentMessages.length} recent messages.`);
+      this.userConversations[conversationKey] = [
+        systemMessage,
+        ...recentMessages,
+      ];
+      console.log(
+        `Conversation history truncated for ${conversationKey} to prevent token overflow. Kept ${recentMessages.length} recent messages.`,
+      );
     }
   }
 
@@ -189,13 +211,19 @@ Remember: Provide accurate, helpful information based on the relevant content pr
 
     // Log conversation context for debugging
     if (history.length > 1) {
-      const userMessages = history.filter(msg => msg.role === 'user');
-      const assistantMessages = history.filter(msg => msg.role === 'assistant');
-      console.log(`Conversation context: ${userMessages.length} user messages, ${assistantMessages.length} assistant messages`);
+      const userMessages = history.filter((msg) => msg.role === "user");
+      const assistantMessages = history.filter(
+        (msg) => msg.role === "assistant",
+      );
+      console.log(
+        `Conversation context: ${userMessages.length} user messages, ${assistantMessages.length} assistant messages`,
+      );
 
       if (userMessages.length > 0) {
         const lastUserMessage = userMessages[userMessages.length - 1];
-        console.log(`Last user message: "${lastUserMessage.content.substring(0, 100)}..."`);
+        console.log(
+          `Last user message: "${lastUserMessage.content.substring(0, 100)}..."`,
+        );
       }
     }
 
@@ -209,23 +237,34 @@ Remember: Provide accurate, helpful information based on the relevant content pr
 
   hasUserHistory(userId) {
     const key = `user_${userId}`;
-    return this.userConversations[key] && this.userConversations[key].length > 1;
+    return (
+      this.userConversations[key] && this.userConversations[key].length > 1
+    );
   }
 
   getConversationContext(userId) {
     const conversation = this.getUserConversation(userId);
     if (conversation.length === 0) return null;
 
-    const userMessages = conversation.filter(msg => msg.role === 'user');
-    const assistantMessages = conversation.filter(msg => msg.role === 'assistant');
+    const userMessages = conversation.filter((msg) => msg.role === "user");
+    const assistantMessages = conversation.filter(
+      (msg) => msg.role === "assistant",
+    );
 
     return {
       totalMessages: conversation.length - 1, // Exclude system message
       userMessages: userMessages.length,
       assistantMessages: assistantMessages.length,
-      lastUserMessage: userMessages.length > 0 ? userMessages[userMessages.length - 1].content : null,
-      lastAssistantMessage: assistantMessages.length > 0 ? assistantMessages[assistantMessages.length - 1].content : null,
-      conversationStart: conversation.length > 1 ? conversation[1].timestamp : null
+      lastUserMessage:
+        userMessages.length > 0
+          ? userMessages[userMessages.length - 1].content
+          : null,
+      lastAssistantMessage:
+        assistantMessages.length > 0
+          ? assistantMessages[assistantMessages.length - 1].content
+          : null,
+      conversationStart:
+        conversation.length > 1 ? conversation[1].timestamp : null,
     };
   }
 
@@ -233,8 +272,10 @@ Remember: Provide accurate, helpful information based on the relevant content pr
     const conversation = this.getUserConversation(userId);
     if (conversation.length <= 1) return "No conversation history";
 
-    const userMessages = conversation.filter(msg => msg.role === 'user');
-    const assistantMessages = conversation.filter(msg => msg.role === 'assistant');
+    const userMessages = conversation.filter((msg) => msg.role === "user");
+    const assistantMessages = conversation.filter(
+      (msg) => msg.role === "assistant",
+    );
 
     const summary = {
       userId: userId,
@@ -242,7 +283,10 @@ Remember: Provide accurate, helpful information based on the relevant content pr
       userMessages: userMessages.length,
       assistantMessages: assistantMessages.length,
       topics: this._extractTopics(userMessages),
-      lastActivity: userMessages.length > 0 ? userMessages[userMessages.length - 1].content : null
+      lastActivity:
+        userMessages.length > 0
+          ? userMessages[userMessages.length - 1].content
+          : null,
     };
 
     return summary;
@@ -251,17 +295,17 @@ Remember: Provide accurate, helpful information based on the relevant content pr
   _extractTopics(userMessages) {
     const topics = new Set();
     const topicKeywords = {
-      'setup': ['setup', 'install', 'configuration', 'getting started'],
-      'troubleshooting': ['problem', 'issue', 'error', 'fix', 'help'],
-      'features': ['feature', 'function', 'capability', 'what can'],
-      'pricing': ['price', 'cost', 'payment', 'subscription'],
-      'support': ['support', 'help', 'contact', 'team']
+      setup: ["setup", "install", "configuration", "getting started"],
+      troubleshooting: ["problem", "issue", "error", "fix", "help"],
+      features: ["feature", "function", "capability", "what can"],
+      pricing: ["price", "cost", "payment", "subscription"],
+      support: ["support", "help", "contact", "team"],
     };
 
-    userMessages.forEach(msg => {
+    userMessages.forEach((msg) => {
       const content = msg.content.toLowerCase();
       Object.entries(topicKeywords).forEach(([topic, keywords]) => {
-        if (keywords.some(keyword => content.includes(keyword))) {
+        if (keywords.some((keyword) => content.includes(keyword))) {
           topics.add(topic);
         }
       });
@@ -292,13 +336,15 @@ Remember: Provide accurate, helpful information based on the relevant content pr
         messageCount: 0,
         userMessages: 0,
         assistantMessages: 0,
-        estimatedTokens: 0
+        estimatedTokens: 0,
       };
     }
 
-    const userMessages = conversation.filter(msg => msg.role === 'user');
-    const assistantMessages = conversation.filter(msg => msg.role === 'assistant');
-    const totalContent = conversation.map(msg => msg.content).join(' ');
+    const userMessages = conversation.filter((msg) => msg.role === "user");
+    const assistantMessages = conversation.filter(
+      (msg) => msg.role === "assistant",
+    );
+    const totalContent = conversation.map((msg) => msg.content).join(" ");
 
     return {
       exists: true,
@@ -306,16 +352,22 @@ Remember: Provide accurate, helpful information based on the relevant content pr
       userMessages: userMessages.length,
       assistantMessages: assistantMessages.length,
       estimatedTokens: this.estimateTokens(totalContent),
-      lastUserMessage: userMessages.length > 0 ? userMessages[userMessages.length - 1].content : null,
-      lastAssistantMessage: assistantMessages.length > 0 ? assistantMessages[assistantMessages.length - 1].content : null
+      lastUserMessage:
+        userMessages.length > 0
+          ? userMessages[userMessages.length - 1].content
+          : null,
+      lastAssistantMessage:
+        assistantMessages.length > 0
+          ? assistantMessages[assistantMessages.length - 1].content
+          : null,
     };
   }
 
   getAllUserConversations() {
     const conversations = {};
     for (const [key, conversation] of Object.entries(this.userConversations)) {
-      if (key.startsWith('user_')) {
-        const userId = key.replace('user_', '');
+      if (key.startsWith("user_")) {
+        const userId = key.replace("user_", "");
         conversations[userId] = this.getConversationStats(userId, true);
       }
     }

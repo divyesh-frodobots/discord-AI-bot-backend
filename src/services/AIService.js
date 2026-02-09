@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { getServerFallbackResponse } from '../config/serverConfigs.js';
+import { getServerFallbackResponse } from "../config/serverConfigs.js";
 
 class AIService {
   constructor() {
@@ -8,11 +8,11 @@ class AIService {
     }
 
     this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY
+      apiKey: process.env.OPENAI_API_KEY,
     });
 
     // Configurable output length to avoid mid-message truncation
-    this.maxOutputTokens = parseInt(process.env.OPENAI_MAX_TOKENS || '600');
+    this.maxOutputTokens = parseInt(process.env.OPENAI_MAX_TOKENS || "600");
   }
 
   async generateResponse(messages, guildId = null) {
@@ -33,7 +33,8 @@ MULTI-PRODUCT QUERY HANDLING:
 - Only use detailed sections if the user specifically asks for comprehensive information
 - For simple questions about multiple products, answer concisely: "For X: [brief answer]. For Y: [brief answer]."
 - Only use emojis and headings for complex multi-step workflows
-- Ask "Which would you like more details about?" instead of providing everything upfront
+- FORBIDDEN: Never generate answers from your training data or make assumptions about FrodoBots products when the information is not in the provided context
+- STRICT ADHERENCE: If the user asks about a specific technology, protocol, or feature (like UART, Serial, 48V, etc.) that is NOT mentioned in the doc, you MUST say you do not have that information.
 
 RESPONSE APPROACH:
 - DIRECT: Answer what they asked immediately
@@ -70,28 +71,31 @@ URL RULES:
 - ALWAYS use plain URLs: https://www.robots.fun/
 - Example: "Visit https://rovers.frodobots.com for setup" NOT "[Setup Guide](https://rovers.frodobots.com)"
 
+ULTIMATE RULE: You are a technical support agent, not a general-purpose AI. If it's not in the documentation, it doesn't exist for you. Don't guess, don't infer, don't hallucinate.
+
 Be the helpful agent they need - direct, knowledgeable, and concise. Answer only what they asked, nothing more.`;
 
       // If a system message is already provided (e.g., from PublicContentManager or product-specific prompt),
       // don't add another system prompt to avoid conflicting instructions.
-      const hasSystem = Array.isArray(messages) && messages[0] && messages[0].role === 'system';
+      const hasSystem =
+        Array.isArray(messages) && messages[0] && messages[0].role === "system";
       const strictMessages = hasSystem
         ? messages
         : [
             {
               role: "system",
-              content: intelligentSystemPrompt
+              content: intelligentSystemPrompt,
             },
-            ...messages
+            ...messages,
           ];
 
       const completion = await this.openai.chat.completions.create({
         model: "gpt-4.1-mini",
         messages: strictMessages,
-        temperature: 0.7, // Slightly reduced for more focused responses
+        temperature: 0, // Set to 0 to strictly follow documentation and reduce hallucinations
         max_tokens: this.maxOutputTokens, // Configurable output length
         presence_penalty: 0.1, // Slightly reduce repetition
-        frequency_penalty: 0.1 // Slightly reduce repetitive phrases
+        frequency_penalty: 0.1, // Slightly reduce repetitive phrases
       });
 
       const reply = completion.choices[0].message.content;
@@ -110,26 +114,30 @@ Be the helpful agent they need - direct, knowledgeable, and concise. Answer only
   async classifyEscalation(messages) {
     try {
       // Ensure system instruction is present and minimal
-      const hasSystem = Array.isArray(messages) && messages[0] && messages[0].role === 'system';
+      const hasSystem =
+        Array.isArray(messages) && messages[0] && messages[0].role === "system";
       const systemMsg = {
-        role: 'system',
-        content: 'You are a strict classifier. Read the user message and respond with ONLY one word: ESCALATE or CONTINUE. No punctuation, no explanation.'
+        role: "system",
+        content:
+          "You are a strict classifier. Read the user message and respond with ONLY one word: ESCALATE or CONTINUE. No punctuation, no explanation.",
       };
       const strictMessages = hasSystem ? messages : [systemMsg, ...messages];
 
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4.1-mini',
+        model: "gpt-4.1-mini",
         messages: strictMessages,
         temperature: 0,
-        max_tokens: 2
+        max_tokens: 2,
       });
-      const reply = (completion.choices[0].message.content || '').trim().toUpperCase();
-      if (reply.startsWith('ESCALATE')) return 'ESCALATE';
-      return 'CONTINUE';
+      const reply = (completion.choices[0].message.content || "")
+        .trim()
+        .toUpperCase();
+      if (reply.startsWith("ESCALATE")) return "ESCALATE";
+      return "CONTINUE";
     } catch (err) {
-      console.error('Escalation classifier error:', err.message);
+      console.error("Escalation classifier error:", err.message);
       // Be conservative and continue so we do not over-escalate on failure
-      return 'CONTINUE';
+      return "CONTINUE";
     }
   }
 
@@ -139,7 +147,7 @@ Be the helpful agent they need - direct, knowledgeable, and concise. Answer only
       return {
         isValid: false,
         response: getServerFallbackResponse(guildId),
-        confidence: 0
+        confidence: 0,
       };
     }
     // Check for robotic phrases and improve them
@@ -150,7 +158,7 @@ Be the helpful agent they need - direct, knowledgeable, and concise. Answer only
     return {
       isValid: true,
       response: compactedReply,
-      confidence: confidence
+      confidence: confidence,
     };
   }
 
@@ -162,36 +170,36 @@ Be the helpful agent they need - direct, knowledgeable, and concise. Answer only
     const roboticPhrases = [
       {
         pattern: /the information provided does not specify/i,
-        replacement: "I don't have specific info about that"
+        replacement: "I don't have specific info about that",
       },
       {
         pattern: /based on the available data/i,
-        replacement: "From what I know"
+        replacement: "From what I know",
       },
       {
         pattern: /the information provided indicates/i,
-        replacement: "Here's what I can tell you"
+        replacement: "Here's what I can tell you",
       },
       {
         pattern: /according to the information/i,
-        replacement: "Based on what I know"
+        replacement: "Based on what I know",
       },
       {
         pattern: /the available information shows/i,
-        replacement: "What I can share with you is"
+        replacement: "What I can share with you is",
       },
       {
         pattern: /it is important to note that/i,
-        replacement: "Keep in mind that"
+        replacement: "Keep in mind that",
       },
       {
         pattern: /it should be mentioned that/i,
-        replacement: "Also worth noting"
+        replacement: "Also worth noting",
       },
       {
         pattern: /the system indicates/i,
-        replacement: "I can see that"
-      }
+        replacement: "I can see that",
+      },
     ];
 
     roboticPhrases.forEach(({ pattern, replacement }) => {
@@ -200,7 +208,7 @@ Be the helpful agent they need - direct, knowledgeable, and concise. Answer only
 
     // Add friendly transitions if the response starts abruptly
     if (improved.match(/^(However|But|Although)/i)) {
-      improved = improved.replace(/^(However|But|Although)/i, 'That said,');
+      improved = improved.replace(/^(However|But|Although)/i, "That said,");
     }
 
     return improved;
@@ -208,21 +216,21 @@ Be the helpful agent they need - direct, knowledgeable, and concise. Answer only
 
   // Compact extra whitespace while preserving basic formatting and lists
   compactWhitespace(text) {
-    if (!text) return '';
+    if (!text) return "";
 
-    let out = text.replace(/\r\n/g, '\n');
+    let out = text.replace(/\r\n/g, "\n");
 
     // Trim trailing spaces on each line
     out = out
-      .split('\n')
-      .map(line => line.replace(/[\t ]+$/g, ''))
-      .join('\n');
+      .split("\n")
+      .map((line) => line.replace(/[\t ]+$/g, ""))
+      .join("\n");
 
     // Collapse 3+ consecutive newlines to a single blank line
-    out = out.replace(/\n{3,}/g, '\n\n');
+    out = out.replace(/\n{3,}/g, "\n\n");
 
     // Remove blank lines between list/step items ("1.", "-", "*", "•")
-    out = out.replace(/\n\n(?=(?:\s*(?:\d+\.|[-*•])\s))/g, '\n');
+    out = out.replace(/\n\n(?=(?:\s*(?:\d+\.|[-*•])\s))/g, "\n");
 
     return out.trim();
   }
@@ -237,9 +245,16 @@ Be the helpful agent they need - direct, knowledgeable, and concise. Answer only
     }
 
     // Reduce confidence for responses that seem uncertain
-    const uncertaintyWords = ['maybe', 'perhaps', 'i think', 'possibly', 'not sure', 'uncertain'];
+    const uncertaintyWords = [
+      "maybe",
+      "perhaps",
+      "i think",
+      "possibly",
+      "not sure",
+      "uncertain",
+    ];
     const lowerReply = reply.toLowerCase();
-    uncertaintyWords.forEach(word => {
+    uncertaintyWords.forEach((word) => {
       if (lowerReply.includes(word)) {
         confidence -= 0.1;
       }
@@ -247,25 +262,32 @@ Be the helpful agent they need - direct, knowledgeable, and concise. Answer only
 
     // Reduce confidence for robotic phrases
     const roboticPhrases = [
-      'the information provided does not specify',
-      'based on the available data',
-      'the information provided indicates',
-      'according to the information',
-      'the available information shows',
-      'it is important to note that',
-      'it should be mentioned that',
-      'the system indicates'
+      "the information provided does not specify",
+      "based on the available data",
+      "the information provided indicates",
+      "according to the information",
+      "the available information shows",
+      "it is important to note that",
+      "it should be mentioned that",
+      "the system indicates",
     ];
 
-    roboticPhrases.forEach(phrase => {
+    roboticPhrases.forEach((phrase) => {
       if (lowerReply.includes(phrase)) {
         confidence -= 0.2; // Significant reduction for robotic language
       }
     });
 
     // Increase confidence for responses that reference FrodoBots content
-    const frodoBotsWords = ['frodobots', 'robot', 'earthrover', 'ufb', 'help', 'support'];
-    frodoBotsWords.forEach(word => {
+    const frodoBotsWords = [
+      "frodobots",
+      "robot",
+      "earthrover",
+      "ufb",
+      "help",
+      "support",
+    ];
+    frodoBotsWords.forEach((word) => {
       if (lowerReply.toLowerCase().includes(word)) {
         confidence += 0.05;
       }
@@ -273,18 +295,18 @@ Be the helpful agent they need - direct, knowledgeable, and concise. Answer only
 
     // Increase confidence for friendly, conversational responses
     const friendlyPhrases = [
-      'here\'s what i can tell you',
-      'from what i know',
-      'i can help you with',
-      'great question',
-      'let me share',
-      'happy to help',
-      'perfect!',
-      'excellent question',
-      'great! i can help with both'
+      "here's what i can tell you",
+      "from what i know",
+      "i can help you with",
+      "great question",
+      "let me share",
+      "happy to help",
+      "perfect!",
+      "excellent question",
+      "great! i can help with both",
     ];
 
-    friendlyPhrases.forEach(phrase => {
+    friendlyPhrases.forEach((phrase) => {
       if (lowerReply.includes(phrase)) {
         confidence += 0.1; // Boost for friendly language
       }
@@ -292,16 +314,16 @@ Be the helpful agent they need - direct, knowledgeable, and concise. Answer only
 
     // Boost confidence for multi-product structured responses
     const multiProductIndicators = [
-      '**🚗',
-      '**🤖',
-      'for test driving',
-      'for creating',
-      'which would you like',
-      'what\'s your next step',
-      'how they work together'
+      "**🚗",
+      "**🤖",
+      "for test driving",
+      "for creating",
+      "which would you like",
+      "what's your next step",
+      "how they work together",
     ];
 
-    multiProductIndicators.forEach(indicator => {
+    multiProductIndicators.forEach((indicator) => {
       if (lowerReply.includes(indicator.toLowerCase())) {
         confidence += 0.15; // Higher boost for structured multi-product responses
       }
