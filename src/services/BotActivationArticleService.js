@@ -160,10 +160,13 @@ class BotActivationArticleService {
   // Extract ALL links from a page - both EarthRovers specific and potentially related
   async extractAllLinksFromPage(url) {
     try {
-      const { data } = await axios.get(url, {
+      const cacheBustUrl = `${url}${url.includes('?') ? '&' : '?'}_cb=${Date.now()}`;
+      const { data } = await axios.get(cacheBustUrl, {
         timeout: 15000, // Increased timeout
         headers: {
           "User-Agent": "Mozilla/5.0 (compatible; Activation-Bot/1.0)",
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          "Pragma": "no-cache",
         },
       });
       
@@ -237,10 +240,13 @@ class BotActivationArticleService {
   // Fetch article content from a page with enhanced content extraction
   async fetchArticleText(url) {
     try {
-      const { data } = await axios.get(url, {
+      const cacheBustUrl2 = `${url}${url.includes('?') ? '&' : '?'}_cb=${Date.now()}`;
+      const { data } = await axios.get(cacheBustUrl2, {
         timeout: 15000,
         headers: {
           "User-Agent": "Mozilla/5.0 (compatible; Activation-Bot/1.0)",
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          "Pragma": "no-cache",
         },
       });
       

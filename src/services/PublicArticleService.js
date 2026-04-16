@@ -171,6 +171,18 @@ class PublicArticleService {
     }
   }
 
+  // Force refresh all articles (bypasses in-progress check, clears old cache)
+  async forceRefresh() {
+    console.log("[PublicArticleService] Force refresh triggered");
+    this._refreshInProgress = false; // Reset in case stuck
+    this.categorizedContent = {}; // Clear old content so stale data is purged
+    this.cachedContent = null;
+    await this._refreshContent();
+    const categoryCount = Object.keys(this.categorizedContent).length;
+    const articleCount = Object.values(this.categorizedContent).reduce((sum, arr) => sum + arr.length, 0);
+    return { categoryCount, articleCount };
+  }
+
   // NEW: Intelligent content selection based on query
   async getRelevantContent(query, maxTokens = 15000, allowedProducts = null) {
     // Check if we have categorized content, if not, return fallback
@@ -757,10 +769,13 @@ ${article.content}
   // NEW: Fetch category directly without excessive crawling
   async _fetchCategoryDirectly(categoryUrl, category) {
     try {
-      const { data } = await axios.get(categoryUrl, {
+      const cacheBustUrl = `${categoryUrl}${categoryUrl.includes('?') ? '&' : '?'}_cb=${Date.now()}`;
+      const { data } = await axios.get(cacheBustUrl, {
         timeout: 10000,
         headers: {
           "User-Agent": "Mozilla/5.0 (compatible; UFB-Bot/1.0)",
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          "Pragma": "no-cache",
         },
       });
       
@@ -819,15 +834,18 @@ ${article.content}
   // NEW: Fetch structured article with metadata
   async _fetchStructuredArticle(url, category) {
     try {
-      const { data } = await axios.get(url, {
+      const cacheBustUrl = `${url}${url.includes('?') ? '&' : '?'}_cb=${Date.now()}`;
+      const { data } = await axios.get(cacheBustUrl, {
         timeout: 10000,
         headers: {
           "User-Agent": "Mozilla/5.0 (compatible; UFB-Bot/1.0)",
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          "Pragma": "no-cache",
         },
       });
-      
+
       const $ = cheerio.load(data);
-      
+
       // Extract title
       const title = $('h1').first().text().trim() || 
                    $('title').text().trim() || 

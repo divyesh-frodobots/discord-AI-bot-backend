@@ -74,10 +74,13 @@ class ArticleService {
   // Extract all links from a page
   async extractLinksFromPage(url) {
     try {
-      const { data } = await axios.get(url, {
+      const cacheBustUrl = `${url}${url.includes('?') ? '&' : '?'}_cb=${Date.now()}`;
+      const { data } = await axios.get(cacheBustUrl, {
         timeout: 10000,
         headers: {
           "User-Agent": "Mozilla/5.0 (compatible; UFB-Bot/1.0)",
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          "Pragma": "no-cache",
         },
       });
 
@@ -139,10 +142,13 @@ class ArticleService {
   // Fetch article content from a page including links, images, and videos
   async fetchArticleText(url) {
     try {
-      const { data } = await axios.get(url, {
+      const cacheBustUrl = `${url}${url.includes('?') ? '&' : '?'}_cb=${Date.now()}`;
+      const { data } = await axios.get(cacheBustUrl, {
         timeout: 10000,
         headers: {
           "User-Agent": "Mozilla/5.0 (compatible; UFB-Bot/1.0)",
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          "Pragma": "no-cache",
         },
       });
 

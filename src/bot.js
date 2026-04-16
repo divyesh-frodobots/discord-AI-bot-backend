@@ -174,6 +174,19 @@ client.on("messageCreate", async (message) => {
       return;
     }
 
+    // Admin command to force refresh Intercom articles
+    if (message.content.startsWith('!refresh') && message.author.id === process.env.ADMIN_USER_ID) {
+      await message.reply('🔄 Force refreshing Intercom articles...');
+      try {
+        const result = await publicArticleService.forceRefresh();
+        await message.reply(`✅ Refresh complete! Loaded ${result.articleCount} articles across ${result.categoryCount} categories.`);
+      } catch (err) {
+        console.error('Error during force refresh:', err);
+        await message.reply(`❌ Refresh failed: ${err.message}`);
+      }
+      return;
+    }
+
     // Route to ticket system
     if (ticketChannelService.isTicketChannel(message.channel)) {
       await ticketChannelService.handleMessage(message);
