@@ -522,6 +522,8 @@ class TicketChannelService {
       let systemContent = null;
       try {
         const structured = await this.articleService.getStructuredArticlesByCategory(ticketState.product);
+        console.log(`📚 [Ticket RAG] Product: ${ticketState.product}, Articles fetched: ${structured.length}`);
+        structured.forEach((a, i) => console.log(`  📄 [${i}] ${a.url} (${a.content?.length || 0} chars)`));
         // Lazy-embed and rank articles by similarity to the user message
         const queryVec = await embeddingService.embedText(message.content.toLowerCase());
         const topK = parseInt(process.env.TICKET_RETRIEVAL_TOP_K || '10', 10);
@@ -539,8 +541,11 @@ class TicketChannelService {
         }
 
         const ranked = embeddingService.constructor.topK(queryVec, corpus, topK);
+        console.log(`🔍 [Ticket RAG] Ranked results (topK=${topK}, minScore=${minScore}):`);
+        ranked.forEach((r, i) => console.log(`  #${i + 1} score=${(r.score || 0).toFixed(4)} url=${r.id}`));
         const filtered = ranked.filter(r => (r.score || 0) >= minScore).map(r => r.payload);
         const joined = filtered.map(a => a.content);
+        console.log(`✅ [Ticket RAG] Filtered articles above threshold: ${filtered.length}`);
 
         // Compute an aggregate score for the current product (average of topK)
         const selectedAvg = ranked.length
@@ -553,6 +558,7 @@ class TicketChannelService {
         const delta = parseFloat(process.env.TICKET_CROSS_PRODUCT_DELTA || '0.05');
 
         const shouldSwitch = !!(cross && cross.score >= Math.max(minSwitch, selectedAvg + delta));
+        console.log(`🔀 [Ticket RAG] Cross-product: score=${cross?.score?.toFixed(4) || 'N/A'}, product=${cross?.product || 'N/A'}, selectedAvg=${selectedAvg.toFixed(4)}, shouldSwitch=${shouldSwitch}`);
 
         if (shouldSwitch) {
           // Keep user's selected product as context, but use cross-product content
@@ -561,14 +567,19 @@ class TicketChannelService {
           // Mark cross-product content so AI knows it's from another product
           const crossContent = `[NOTE: The following information is from ${crossProductName} documentation. The user selected ${userProductName}, but we don't have specific ${userProductName} documentation for this topic. Provide the information but acknowledge it may apply differently to ${userProductName}.]\n\n${cross.content}`;
           systemContent = buildSystemPrompt(crossContent, userProductName, { allowCrossProduct: true });
+          console.log(`📋 [Ticket RAG] PATH: cross-product switch to ${crossProductName}, content length=${crossContent.length}`);
         } else if (joined.length > 0) {
           const contentForPrompt = joined.join('\n\n---\n\n');
           const productDisplayName = this.getProductDisplayName(ticketState.product);
           systemContent = buildSystemPrompt(contentForPrompt, productDisplayName, { allowCrossProduct: true });
+          console.log(`📋 [Ticket RAG] PATH: semantic retrieval, ${filtered.length} articles, content length=${contentForPrompt.length}`);
+          // Log first 300 chars of content to verify correct article
+          console.log(`📋 [Ticket RAG] Content preview: ${contentForPrompt.substring(0, 300)}`);
         } else {
           const contentForPrompt = await this.articleService.getArticlesByCategory(ticketState.product);
           const productDisplayName = this.getProductDisplayName(ticketState.product);
           systemContent = buildSystemPrompt(contentForPrompt, productDisplayName, { allowCrossProduct: true });
+          console.log(`📋 [Ticket RAG] PATH: fallback (all category articles), content length=${contentForPrompt.length}`);
         }
       } catch (retrievalError) {
         console.error('❌ Ticket retrieval error, falling back to heuristic:', retrievalError.message);
