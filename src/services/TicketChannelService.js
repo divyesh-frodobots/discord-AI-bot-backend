@@ -547,7 +547,8 @@ class TicketChannelService {
         const joined = filtered.map(a => a.content);
         console.log(`✅ [Ticket RAG] Filtered articles above threshold: ${filtered.length}`);
 
-        // Compute an aggregate score for the current product (average of topK)
+        // Compute scores for the current product
+        const selectedBest = ranked.length > 0 ? (ranked[0].score || 0) : 0;
         const selectedAvg = ranked.length
           ? ranked.reduce((s, r) => s + (r.score || 0), 0) / ranked.length
           : 0;
@@ -557,8 +558,10 @@ class TicketChannelService {
         const minSwitch = parseFloat(process.env.TICKET_CROSS_PRODUCT_MIN_SCORE || '0.28');
         const delta = parseFloat(process.env.TICKET_CROSS_PRODUCT_DELTA || '0.05');
 
-        const shouldSwitch = !!(cross && cross.score >= Math.max(minSwitch, selectedAvg + delta));
-        console.log(`🔀 [Ticket RAG] Cross-product: score=${cross?.score?.toFixed(4) || 'N/A'}, product=${cross?.product || 'N/A'}, selectedAvg=${selectedAvg.toFixed(4)}, shouldSwitch=${shouldSwitch}`);
+        // Don't switch if the best match in the selected product is strong enough
+        // Use the BEST score (not average) to prevent high-quality matches from being overridden
+        const shouldSwitch = !!(cross && cross.score >= Math.max(minSwitch, selectedBest + delta));
+        console.log(`🔀 [Ticket RAG] Cross-product: score=${cross?.score?.toFixed(4) || 'N/A'}, product=${cross?.product || 'N/A'}, selectedBest=${selectedBest.toFixed(4)}, selectedAvg=${selectedAvg.toFixed(4)}, shouldSwitch=${shouldSwitch}`);
 
         if (shouldSwitch) {
           // Keep user's selected product as context, but use cross-product content
