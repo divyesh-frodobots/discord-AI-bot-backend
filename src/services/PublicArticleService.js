@@ -704,7 +704,7 @@ ${article.content}
       console.log("[PublicArticleService] Fetching all articles: START");
       
       // NEW: Fetch and categorize articles
-      await this._fetchAndCategorizeArticles();
+      await this._fetchAndCategorizeArticles(force);
       
       // Create structured content for backward compatibility
       const allArticles = [];
@@ -727,9 +727,9 @@ ${article.content}
   }
 
   // NEW: Fetch and categorize articles
-  async _fetchAndCategorizeArticles() {
-    // Check if we already have categorized content
-    if (this.categorizedContent && Object.keys(this.categorizedContent).length > 0) {
+  async _fetchAndCategorizeArticles(force = false) {
+    // Check if we already have categorized content (skip when force refresh)
+    if (!force && this.categorizedContent && Object.keys(this.categorizedContent).length > 0) {
       console.log("[PublicArticleService] Using existing categorized content");
       return;
     }
