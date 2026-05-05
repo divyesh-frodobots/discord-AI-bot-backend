@@ -271,10 +271,14 @@ class ActivationBot {
       earthRoversArticles &&
       earthRoversArticles !== "EarthRovers article content unavailable"
     ) {
-      // Pre-build and cache the system prompt for immediate use
+      // Pre-build and cache the system prompt for immediate use (fallback)
       this.cachedSystemPrompt =
         this.buildEarthRoversSystemPrompt(earthRoversArticles);
       console.log("✅ EarthRovers system prompt cached and ready");
+
+      // Build structured articles for per-query retrieval
+      await this.botActivationArticleService.buildStructuredArticles();
+      console.log("✅ EarthRovers structured articles ready for retrieval");
 
       // Show detailed diagnostics
       const diagnostics = this.botActivationArticleService.getDiagnostics();
@@ -322,6 +326,8 @@ class ActivationBot {
       // Update cached system prompt with fresh content
       this.cachedSystemPrompt =
         this.buildEarthRoversSystemPrompt(refreshedContent);
+      // Rebuild structured articles for retrieval
+      await this.botActivationArticleService.buildStructuredArticles();
       console.log("✅ EarthRovers content refreshed and system prompt updated");
 
       // Show updated diagnostics
@@ -466,17 +472,27 @@ class ActivationBot {
       typingInterval = setInterval(() => message.channel.sendTyping(), 5000);
       message.channel.sendTyping();
 
-      // Use cached system prompt for immediate response
+      // Ensure articles are loaded
       if (!this.cachedSystemPrompt) {
         console.log("⚠️ System prompt not cached, attempting to initialize...");
         await this.initializeEarthRoversContent();
       }
 
       if (this.cachedSystemPrompt) {
-        // Initialize conversation with cached EarthRovers context
+        // Use per-query retrieval to get only relevant articles
+        let systemPrompt;
+        try {
+          const relevantContent = await this.botActivationArticleService.getRelevantArticles(message.content);
+          systemPrompt = this.buildEarthRoversSystemPrompt(relevantContent);
+        } catch (retrievalErr) {
+          console.error('⚠️ Activation retrieval failed, using full cached prompt:', retrievalErr.message);
+          systemPrompt = this.cachedSystemPrompt;
+        }
+
+        // Initialize conversation with relevant EarthRovers context
         await this.conversationService.initializeConversation(
           userId,
-          this.cachedSystemPrompt,
+          systemPrompt,
           false,
         );
         this.conversationService.addUserMessage(userId, message.content, false);

@@ -1,5 +1,6 @@
 import axios from "axios";
 import * as cheerio from 'cheerio';
+import embeddingService from './EmbeddingService.js';
 
 class BotActivationArticleService {
   constructor() {
@@ -10,8 +11,15 @@ class BotActivationArticleService {
     this.discoveredUrls = new Set();
     this.visitedUrls = new Set();
 
+    // Structured article storage for retrieval
+    this.structuredArticles = [];
+
     // Configuration specific to EarthRovers
     this.EARTHROVERS_COLLECTION_URL = "https://intercom.help/frodobots/en/collections/9174353-et-fugi-earthrover";
+    // Additional collection URLs to ensure full coverage (FAQs, SIM cards, etc.)
+    this.ADDITIONAL_COLLECTION_URLS = [
+      "https://intercom.help/frodobots/en/collections/13786258-faqs",
+    ];
     this.BASE_URL = "https://intercom.help/frodobots/en/";
     this.REFRESH_INTERVAL = 60 * 60 * 1000; // 1 hour
     this.MAX_TOKENS = 40000; // Increased for GPT-4.1's 1M context window - comprehensive knowledge base
@@ -357,10 +365,22 @@ class BotActivationArticleService {
   // Get ALL EarthRovers article URLs using a comprehensive approach
   async getAllEarthRoversArticleUrls() {
     console.log("🌍 EarthRovers Bot: Starting comprehensive crawl...");
-    
+
     // Step 1: Get all direct article links from the collection page
     const directArticleLinks = await this.getDirectArticleLinks();
-    
+
+    // Step 1b: Also get articles from additional collections (FAQs, etc.)
+    for (const collectionUrl of this.ADDITIONAL_COLLECTION_URLS) {
+      try {
+        const links = await this.extractAllLinksFromPage(collectionUrl);
+        const articleLinks = links.filter(url => url.includes('/articles/'));
+        directArticleLinks.push(...articleLinks);
+        console.log(`📄 EarthRovers Bot: Found ${articleLinks.length} additional articles from ${collectionUrl}`);
+      } catch (e) {
+        console.warn(`⚠️ EarthRovers Bot: Failed to fetch additional collection ${collectionUrl}:`, e.message);
+      }
+    }
+
     // Step 2: Get content from direct articles and crawl for additional links
     console.log("🔍 EarthRovers Bot: Crawling for additional content...");
     const crawledPages = await this.crawlForAdditionalContent([this.EARTHROVERS_COLLECTION_URL, ...directArticleLinks]);
@@ -430,11 +450,63 @@ class BotActivationArticleService {
     return combinedContent;
   }
 
+  // Build structured articles from crawled content (call after getAllEarthRoversArticles)
+  async buildStructuredArticles() {
+    const articles = [];
+    for (const [url, content] of Object.entries(this.cachedArticles)) {
+      if (!content || content.length < 50) continue;
+      // Extract title from cached content (format: "TITLE: ...\n\nURL: ...\n\n...")
+      const titleMatch = content.match(/^TITLE:\s*(.+?)(?:\n|$)/);
+      const title = titleMatch ? titleMatch[1].trim() : 'Untitled';
+      articles.push({ url, title, content, embedding: null });
+    }
+    // Pre-compute embeddings
+    let prepared = 0;
+    for (const article of articles) {
+      try {
+        article.embedding = await embeddingService.embedText(article.content);
+        prepared++;
+      } catch {}
+    }
+    this.structuredArticles = articles;
+    console.log(`📊 EarthRovers Bot: Built ${articles.length} structured articles, embedded ${prepared}`);
+    return articles;
+  }
+
+  // Retrieve most relevant articles for a query using embedding similarity
+  async getRelevantArticles(query, topK = 8, minScore = 0.22) {
+    if (!this.structuredArticles || this.structuredArticles.length === 0) {
+      console.log('[ActivationArticleService] No structured articles, falling back to cached content');
+      return this.cachedContent || '';
+    }
+
+    const queryVec = await embeddingService.embedText((query || '').toLowerCase());
+    const corpus = this.structuredArticles
+      .filter(a => Array.isArray(a.embedding) && a.embedding.length > 0)
+      .map(a => ({ id: a.url, vector: a.embedding, payload: a }));
+
+    const ranked = embeddingService.constructor.topK(queryVec, corpus, topK);
+    const filtered = ranked.filter(r => (r.score || 0) >= minScore);
+
+    console.log(`🔍 [Activation RAG] Query: "${query.slice(0, 60)}"`);
+    ranked.slice(0, 5).forEach((r, i) => console.log(`  #${i + 1} score=${(r.score || 0).toFixed(4)} url=${r.id}`));
+    console.log(`✅ [Activation RAG] Selected ${filtered.length} articles above threshold ${minScore}`);
+
+    if (filtered.length === 0) {
+      // Fallback: return top 3 regardless of score
+      const fallback = ranked.slice(0, 3).map(r => r.payload.content);
+      return fallback.join('\n\n---\n\n');
+    }
+
+    return filtered.map(r => r.payload.content).join('\n\n---\n\n');
+  }
+
   // Method to refresh content manually
   async refreshContent() {
     console.log("🔄 EarthRovers Bot: Manually refreshing content...");
     this.cachedContent = null;
     this.lastContentFetch = 0;
+    this.structuredArticles = [];
     this.discoveredUrls.clear();
     this.visitedUrls.clear();
     return await this.getAllEarthRoversArticles();
